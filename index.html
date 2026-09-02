@@ -249,6 +249,7 @@ tr.waiting-row td{opacity:.62}
   <div class="tab-item" onclick="switchTab('stats')">📈 종합통계</div>
   <div class="tab-item" onclick="switchTab('sign')">📝 수령확인부</div>
   <div class="tab-item" onclick="switchTab('list')">🗒️ 신청목록</div>
+  <div class="tab-item" onclick="switchTab('order')">🚚 발주관리</div>
   <div class="tab-item" onclick="switchTab('settings')">⚙️ 설정</div>
 </div>
 
@@ -532,7 +533,79 @@ tr.waiting-row td{opacity:.62}
   </div>
 </div>
 
-<!-- ⑧ 설정 -->
+<!-- ⑩ 발주관리 -->
+<div class="tab-content" id="tab-order">
+  <div class="kpi-grid" id="orderKpi"></div>
+  <div id="orderAlert"></div>
+
+  <div class="table-panel">
+    <div class="table-panel-header">
+      <h3>📥 발주서 불러오기 / 회차 관리</h3>
+      <span style="font-size:11px;color:var(--gray500);margin-left:auto">유한대_발주서.xlsx 양식 그대로 업로드</span>
+    </div>
+    <div style="padding:13px">
+      <div class="upload-zone" onclick="document.getElementById('orderFile').click()">
+        <div style="font-size:26px">🚚</div>
+        <p><b>발주서 엑셀을 올리면 계약 총량·발주량·회차별 입고가 자동 반영됩니다.</b><br>
+        (구분 · 제품명 · 박스입수량 · BOX · 전체수량 · 발주량 · 입고회차 열 인식)</p>
+      </div>
+      <input type="file" id="orderFile" accept=".xlsx,.xls" style="display:none" onchange="uploadOrderFile(this)">
+
+      <div class="setting-row" style="margin-top:13px">
+        <span class="setting-label">입고 회차 선택</span>
+        <select class="setting-input" id="orderRound" style="max-width:220px" onchange="renderOrderTable()"></select>
+        <input type="date" class="setting-input" id="orderRoundDate" style="max-width:160px" onchange="saveRoundDate()">
+        <button class="filter-btn" onclick="addOrderRound()">＋ 회차 추가</button>
+      </div>
+      <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:9px">
+        <button class="save-btn" onclick="applyRoundToStock()">📦 이 회차 입고 확정 → 물품원장 반영</button>
+        <button class="filter-btn ghost" onclick="exportOrderExcel()">📤 발주서 엑셀 저장</button>
+        <button class="filter-btn ghost" onclick="autoFillNextOrder()">🔮 판매속도로 다음 발주량 제안</button>
+      </div>
+      <div class="msg-ok" id="msgOrder">✅ 저장되었습니다.</div>
+    </div>
+  </div>
+
+  <div class="chart-grid">
+    <div class="chart-panel"><h3>📦 대분류별 계약 잔량</h3><div class="chart-wrap"><canvas id="chartOrderRemain"></canvas></div></div>
+    <div class="chart-panel"><h3>📈 회차별 입고 물량</h3><div class="chart-wrap"><canvas id="chartOrderRound"></canvas></div></div>
+  </div>
+
+  <div class="table-panel">
+    <div class="table-panel-header">
+      <h3>📋 발주 원장 (계약 총량 · 발주 · 입고 · 잔량)</h3>
+      <input class="search-input" id="orderSearch" placeholder="품명 검색" oninput="renderOrderTable()">
+      <button class="filter-btn" style="margin-left:auto" onclick="saveOrderTable()">💾 표 저장</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th style="width:34px">연번</th><th>구분</th><th>제품명</th><th style="width:60px">규격</th>
+          <th style="width:56px">입수</th><th style="width:48px">BOX</th>
+          <th style="width:78px">계약총량</th><th style="width:84px">이번 발주량</th>
+          <th style="width:72px">누적입고</th><th style="width:72px">계약잔량</th>
+          <th style="width:66px">판매</th><th style="width:110px">계약 소진율</th>
+        </tr></thead>
+        <tbody id="orderBody"></tbody>
+        <tfoot id="orderFoot"></tfoot>
+      </table>
+    </div>
+  </div>
+
+  <div class="table-panel">
+    <div class="table-panel-header"><h3>🔮 소요 예측 (최근 판매 속도 기준)</h3>
+      <span style="font-size:11px;color:var(--gray500);margin-left:auto">승인 기준 판매량으로 계산</span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>구분</th><th>제품명</th><th>현재 재고</th><th>1회 평균 판매</th><th>예상 소진</th><th>재발주 권고</th></tr></thead>
+        <tbody id="orderForecastBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ⑪ 설정 -->
 <div class="tab-content" id="tab-settings">
 
   <div class="settings-section">
@@ -1017,6 +1090,7 @@ function loadAll(){
       if(d.basis) LS.set('basis',d.basis);
       if(d.display) LS.set('display',d.display);
       if(d.fixedDays) LS.set('fixed_days',d.fixedDays);
+      if(d.order) LS.set('order',d.order);
       LS.set('account',{bank:d.bank||'카카오뱅크',no:d.bankNo||'3333-13-8457612',owner:d.bankOwner||'최 광 균',amt:d.bankAmt||'1,000원'});
       if(d.soldoutManual!==undefined) LS.set('soldout',{manual:d.soldoutManual==='true'||d.soldoutManual===true,msg:d.soldoutMsg||'금일 천원매점 판매가 종료되었습니다. 감사합니다.'});
     } else if(err==='network') netErr=true;
@@ -1063,7 +1137,7 @@ function showGasError(isNetwork,srvMsg){
 // ══════════════════════════════════════════════════════════════
 //  탭
 // ══════════════════════════════════════════════════════════════
-const TAB_IDS=['live','stock','daily','item','student','dept','stats','sign','list','settings'];
+const TAB_IDS=['live','stock','daily','item','student','dept','stats','sign','list','order','settings'];
 function switchTab(id){
   document.querySelectorAll('.tab-item').forEach((el,i)=>el.classList.toggle('active',TAB_IDS[i]===id));
   document.querySelectorAll('.tab-content').forEach(el=>el.classList.remove('active'));
@@ -1076,6 +1150,7 @@ function switchTab(id){
   else if(id==='stats') renderStats();
   else if(id==='sign') { buildSignDates(); renderSign(); }
   else if(id==='list') renderList();
+  else if(id==='order') renderOrderTab();
   else if(id==='settings') initSettings();
 }
 
@@ -2142,6 +2217,401 @@ function exportListCSV(){
   a.download='천원매점_신청목록_'+fDate(new Date())+'.csv';
   a.click();
   URL.revokeObjectURL(a.href);
+}
+
+// ══════════════════════════════════════════════════════════════
+//  ⑩ 발주관리
+//   · 발주(계약)와 재고(물품원장)를 분리해서 관리
+//   · 실제 물건이 도착했을 때 「입고 확정」을 눌러야 재고에 반영
+// ══════════════════════════════════════════════════════════════
+
+// 발주 원장 { items:{ '대분류|품명': {spec,ins,box,total,rounds:{1:qty,...}} }, rounds:{1:'2026-08-27',...} }
+function getOrder(){ return LS.get('order',{items:{},rounds:{}}) || {items:{},rounds:{}}; }
+function setOrder(o){
+  LS.set('order',o);
+  if(!IS_DEMO) fetchFromGAS({action:'saveOrder',order:JSON.stringify(o)},function(){});
+}
+// 발주서 품명 ↔ 시스템 품명 정규화 매칭
+function normName(x){ return String(x||'').replace(/[\s()（）]/g,'').toLowerCase(); }
+function matchItem(cat,rawName,usedSet,posIdx){
+  const c=normCat(cat);
+  const g=CATALOG.find(x=>x.c===c);
+  if(!g) return null;
+  const nn=normName(rawName);
+  const used=usedSet||new Set();
+  const cand=g.items.filter(it=>!used.has(it.n));
+
+  // ① 양방향 포함 검사 (발주서명이 더 길거나, 시스템명이 더 긴 경우 모두 대응)
+  //    예) '삼양 불닭볶음면' ↔ '불닭볶음면 큰컵'
+  let best=null, bestLen=0;
+  for(const it of cand){
+    const sn=normName(it.n);
+    if(nn.indexOf(sn)!==-1 || sn.indexOf(nn)!==-1){
+      if(sn.length>bestLen){ best=it.n; bestLen=sn.length; }
+    }
+  }
+  if(best) return {cat:c,name:best};
+
+  // ② 제조사를 뺀 핵심어로 재시도 (앞 단어 제거하며 비교)
+  const parts=String(rawName).trim().split(/\s+/);
+  for(let cut=1; cut<parts.length; cut++){
+    const core=normName(parts.slice(cut).join(''));
+    if(core.length<3) break;
+    for(const it of cand){
+      const sn=normName(it.n);
+      if(sn.indexOf(core)!==-1 || core.indexOf(sn)!==-1) return {cat:c,name:it.n};
+    }
+  }
+
+  // ③ 같은 대분류 안에서 순서로 대응 (품목 수가 같을 때만)
+  if(posIdx!==undefined && posIdx<g.items.length && !used.has(g.items[posIdx].n)){
+    return {cat:c,name:g.items[posIdx].n,byOrder:true};
+  }
+  return null;
+}
+// 품목별 누적 입고 = 확정된 회차 합계
+function cumIn(rec){
+  if(!rec||!rec.rounds) return 0;
+  let s=0; for(const k in rec.rounds) s+=Number(rec.rounds[k]||0);
+  return s;
+}
+function orderRoundList(){
+  const o=getOrder();
+  const ks=Object.keys(o.rounds||{}).map(Number).filter(n=>!isNaN(n)).sort((a,b)=>a-b);
+  return ks.length?ks:[1];
+}
+
+function renderOrderTab(){
+  const o=getOrder();
+  // 회차 선택 박스
+  const sel=document.getElementById('orderRound');
+  const cur=sel.value;
+  const rounds=orderRoundList();
+  sel.innerHTML=rounds.map(n=>'<option value="'+n+'">'+n+'회차'+(o.rounds[n]?' ('+o.rounds[n]+')':'')+'</option>').join('');
+  sel.value=(cur&&rounds.indexOf(Number(cur))!==-1)?cur:rounds[rounds.length-1];
+  document.getElementById('orderRoundDate').value=o.rounds[sel.value]||'';
+
+  const rows=orderRows();
+  const total=rows.reduce((s,r)=>s+r.total,0);
+  const cum=rows.reduce((s,r)=>s+r.cum,0);
+  const left=Math.max(0,total-cum);
+  const sold=rows.reduce((s,r)=>s+r.sold,0);
+  const pct=total?Math.round(cum/total*100):0;
+  const lowCnt=rows.filter(r=>r.total>0 && (r.total-r.cum)/r.total<=0.2).length;
+
+  document.getElementById('orderKpi').innerHTML=
+     kpi('📜',nf(total),'계약 총량(개)',true)
+    +kpi('🚚',nf(cum),'누적 입고(개)')
+    +kpi('📦',nf(left),'계약 잔량(개)')
+    +kpi('🔥',pct+'%','계약 소진율')
+    +kpi('🛒',nf(sold),'실판매(승인)')
+    +kpi('⚠️',lowCnt,'재발주 검토 품목');
+
+  document.getElementById('orderAlert').innerHTML = lowCnt
+    ? '<div class="table-panel" style="border-left:4px solid var(--orange)"><div class="table-panel-header"><h3>⚠️ 계약 잔량 20% 이하 — 재발주 검토 ('+lowCnt+'개)</h3></div>'
+      +'<div style="padding:11px 13px;line-height:2">'
+      + rows.filter(r=>r.total>0&&(r.total-r.cum)/r.total<=0.2)
+            .map(r=>'<span class="pick-tag" style="background:#ffedd5;border-color:#fb923c;color:#9a3412">'+esc(r.name)+' · 잔량 '+nf(r.total-r.cum)+'</span>').join('')
+      +'</div></div>'
+    : '';
+
+  const roll={};
+  rows.forEach(r=>{ roll[r.cat]=roll[r.cat]||{c:r.cat,left:0,cum:0}; roll[r.cat].left+=Math.max(0,r.total-r.cum); roll[r.cat].cum+=r.cum; });
+  const rl=CATALOG.map(g=>roll[g.c]).filter(Boolean);
+  safeChart('chartOrderRemain',{type:'bar',data:{labels:rl.map(r=>catStyle(r.c).label||r.c),
+    datasets:[{label:'계약 잔량',data:rl.map(r=>r.left),backgroundColor:rl.map(r=>catColor(r.c)),borderRadius:5},
+              {label:'누적 입고',data:rl.map(r=>r.cum),backgroundColor:'rgba(107,114,128,.35)',borderRadius:5}]},
+    options:{responsive:true,maintainAspectRatio:false,scales:{x:{stacked:true,ticks:{font:{size:9}}},y:{stacked:true,beginAtZero:true}},plugins:{legend:{labels:{font:{size:10}}}}}});
+
+  const rsum=rounds.map(n=>rows.reduce((s,r)=>s+Number((r.rounds||{})[n]||0),0));
+  safeChart('chartOrderRound',{type:'bar',data:{labels:rounds.map(n=>n+'회차'),
+    datasets:[{label:'입고 물량',data:rsum,backgroundColor:'#0f766e',borderRadius:5}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true}}}});
+
+  renderOrderTable();
+  renderOrderForecast();
+}
+
+// 발주 원장 행 (카탈로그 기준, 발주 데이터가 없으면 기본값)
+function orderRows(){
+  const o=getOrder();
+  const sold=soldMapFrom(salesData());
+  const stock=getStockMap();
+  const rows=[]; let no=0;
+  CATALOG.forEach(function(g){
+    g.items.forEach(function(it){
+      const k=itemKey(g.c,it.n);
+      const rec=o.items[k]||{};
+      rows.push({
+        no:++no, key:k, cat:g.c, name:it.n, maker:it.m,
+        spec:rec.spec||'', ins:rec.ins!==undefined?Number(rec.ins):it.ins, box:rec.box!==undefined?Number(rec.box):it.box,
+        total:Number(rec.total||0), rounds:rec.rounds||{}, cum:cumIn(rec),
+        stock:stock[k]||0, sold:sold[k]||0
+      });
+    });
+  });
+  return rows;
+}
+
+function renderOrderTable(){
+  const q=(document.getElementById('orderSearch').value||'').trim().toLowerCase();
+  const round=document.getElementById('orderRound').value||'1';
+  const o=getOrder();
+  document.getElementById('orderRoundDate').value=o.rounds[round]||'';
+  let rows=orderRows();
+  if(q) rows=rows.filter(r=>(r.name+r.cat+r.maker).toLowerCase().indexOf(q)!==-1);
+
+  document.getElementById('orderBody').innerHTML = rows.length? rows.map(function(r){
+    const left=Math.max(0,r.total-r.cum);
+    const pct=r.total?Math.round(r.cum/r.total*100):0;
+    const color=left===0?'var(--red)':pct>=80?'var(--orange)':'var(--green)';
+    return '<tr>'
+      +'<td>'+r.no+'</td>'
+      +'<td>'+catBadge(r.cat)+'</td>'
+      +'<td>'+esc(r.maker)+' '+esc(r.name)+'</td>'
+      +'<td><input type="text" data-k="'+esc(r.key)+'" data-f="spec" value="'+esc(r.spec)+'" style="width:54px;padding:3px 5px;border:1px solid var(--gray300);border-radius:4px;font-size:11px;font-family:inherit"></td>'
+      +'<td><input type="number" min="0" data-k="'+esc(r.key)+'" data-f="ins" value="'+r.ins+'" style="width:50px;padding:3px 5px;border:1px solid var(--gray300);border-radius:4px;font-size:11px;text-align:right;font-family:inherit"></td>'
+      +'<td><input type="number" min="0" data-k="'+esc(r.key)+'" data-f="box" value="'+r.box+'" style="width:42px;padding:3px 5px;border:1px solid var(--gray300);border-radius:4px;font-size:11px;text-align:right;font-family:inherit"></td>'
+      +'<td><input type="number" min="0" data-k="'+esc(r.key)+'" data-f="total" value="'+r.total+'" style="width:70px;padding:3px 5px;border:1.5px solid var(--gray300);border-radius:4px;font-size:11px;text-align:right;font-family:inherit"></td>'
+      +'<td><input type="number" min="0" data-k="'+esc(r.key)+'" data-f="round" value="'+Number(r.rounds[round]||0)+'" style="width:76px;padding:3px 5px;border:1.5px solid var(--primary);border-radius:4px;font-size:11px;text-align:right;font-family:inherit;font-weight:700"></td>'
+      +'<td style="font-weight:700">'+nf(r.cum)+'</td>'
+      +'<td style="font-weight:800;color:'+color+'">'+nf(left)+'</td>'
+      +'<td style="color:var(--orange);font-weight:700">'+nf(r.sold)+'</td>'
+      +'<td><div style="display:flex;align-items:center;gap:6px"><div class="progress-bar-sm" style="flex:1"><div class="progress-fill-sm" style="width:'+pct+'%;background:'+color+'"></div></div><span style="font-size:10px;font-weight:700">'+pct+'%</span></div></td>'
+      +'</tr>';
+  }).join('') : '<tr><td colspan="12" class="empty-note">검색 결과가 없습니다.</td></tr>';
+
+  const t=rows.reduce((a,r)=>({total:a.total+r.total,cum:a.cum+r.cum,rd:a.rd+Number(r.rounds[round]||0),sold:a.sold+r.sold}),{total:0,cum:0,rd:0,sold:0});
+  document.getElementById('orderFoot').innerHTML='<tr><td colspan="6">합계</td><td>'+nf(t.total)+'</td><td>'+nf(t.rd)+'</td><td>'+nf(t.cum)+'</td><td>'+nf(Math.max(0,t.total-t.cum))+'</td><td>'+nf(t.sold)+'</td><td>'+(t.total?Math.round(t.cum/t.total*100):0)+'%</td></tr>';
+}
+
+function saveOrderTable(){
+  const round=document.getElementById('orderRound').value||'1';
+  const o=getOrder();
+  document.querySelectorAll('#orderBody input[data-k]').forEach(function(inp){
+    const k=inp.dataset.k, f=inp.dataset.f;
+    o.items[k]=o.items[k]||{rounds:{}};
+    o.items[k].rounds=o.items[k].rounds||{};
+    if(f==='round') o.items[k].rounds[round]=Number(inp.value||0);
+    else if(f==='spec') o.items[k].spec=inp.value;
+    else o.items[k][f]=Number(inp.value||0);
+  });
+  setOrder(o);
+  showMsg('msgOrder');
+  renderOrderTab();
+}
+
+function addOrderRound(){
+  const o=getOrder();
+  const rounds=orderRoundList();
+  const next=Math.max.apply(null,rounds)+1;
+  o.rounds[next]=fDate(new Date());
+  setOrder(o);
+  renderOrderTab();
+  document.getElementById('orderRound').value=next;
+  renderOrderTable();
+  alert('✅ '+next+'회차를 추가했습니다.\n발주량을 입력한 뒤 「표 저장」을 누르세요.');
+}
+function saveRoundDate(){
+  const o=getOrder();
+  const r=document.getElementById('orderRound').value;
+  o.rounds[r]=document.getElementById('orderRoundDate').value;
+  setOrder(o);
+  renderOrderTab();
+}
+
+// ★ 입고 확정 — 이 회차 수량을 물품원장(학생 화면 재고)에 더한다
+function applyRoundToStock(){
+  const round=document.getElementById('orderRound').value||'1';
+  const o=getOrder();
+  const rows=orderRows().filter(r=>Number(r.rounds[round]||0)>0);
+  if(!rows.length){ alert(round+'회차에 입력된 발주량이 없습니다.\n표에 수량을 입력하고 「표 저장」을 먼저 누르세요.'); return; }
+  const sum=rows.reduce((s,r)=>s+Number(r.rounds[round]),0);
+  if(o.applied&&o.applied[round]){
+    if(!confirm('⚠️ '+round+'회차는 이미 입고 확정되었습니다.\n다시 확정하면 재고가 중복으로 더해집니다.\n\n그래도 진행할까요?')) return;
+  } else {
+    if(!confirm('📦 '+round+'회차 입고를 확정합니다.\n\n대상 '+rows.length+'개 품목 · 총 '+nf(sum)+'개\n\n물품원장(학생 화면 재고)에 더해집니다. 계속할까요?')) return;
+  }
+  const ov=LS.get('stock_override',{})||{};
+  const base=getStockMap();
+  rows.forEach(function(r){
+    const cur=(ov[r.key]!==undefined&&ov[r.key]!=='')?Number(ov[r.key]):base[r.key];
+    ov[r.key]=cur+Number(r.rounds[round]);
+  });
+  LS.set('stock_override',ov);
+  o.applied=o.applied||{}; o.applied[round]=fDate(new Date());
+  setOrder(o);
+  STOCK=getStockMap();
+  if(!IS_DEMO) fetchFromGAS({action:'saveStock',stock:JSON.stringify(ov)},function(){});
+  alert('✅ '+round+'회차 입고 '+nf(sum)+'개를 재고에 반영했습니다.');
+  renderOrderTab(); renderStockTab(); renderLive();
+}
+
+// 판매 속도로 다음 발주량 제안
+function autoFillNextOrder(){
+  const dates=[...new Set(salesData().map(r=>r.date))].length||1;
+  const sold=soldMapFrom(salesData());
+  const stock=getStockMap();
+  const round=document.getElementById('orderRound').value||'1';
+  let n=0;
+  document.querySelectorAll('#orderBody input[data-f="round"]').forEach(function(inp){
+    const k=inp.dataset.k;
+    const avg=(sold[k]||0)/dates;              // 1회 운영당 평균 판매
+    const need=Math.max(0,Math.ceil(avg*4)-(stock[k]||0));  // 4회 운영분 확보 목표
+    const box=Number((document.querySelector('input[data-k="'+k.replace(/"/g,'')+'"][data-f="ins"]')||{}).value||1);
+    const qty=need>0?Math.ceil(need/box)*box:0;  // 박스 단위 올림
+    inp.value=qty; if(qty>0) n++;
+  });
+  alert('🔮 최근 '+dates+'회 운영의 판매 속도를 기준으로\n앞으로 4회분 재고를 확보하는 수량을 채웠습니다.\n\n제안된 품목: '+n+'개\n\n검토 후 「표 저장」을 누르세요.');
+}
+
+function renderOrderForecast(){
+  const dates=[...new Set(salesData().map(r=>r.date))].length;
+  const sold=soldMapFrom(salesData());
+  const stock=getStockMap();
+  const body=document.getElementById('orderForecastBody');
+  if(!dates){ body.innerHTML='<tr><td colspan="6" class="empty-note">판매 데이터가 없어 예측할 수 없습니다.</td></tr>'; return; }
+  const rows=orderRows().map(function(r){
+    const avg=(sold[r.key]||0)/dates;
+    const left=stock[r.key]||0;
+    const days=avg>0?Math.floor(left/avg):null;
+    return Object.assign({},r,{avg:avg,left:left,days:days});
+  }).filter(r=>r.avg>0).sort((a,b)=>(a.days===null?9999:a.days)-(b.days===null?9999:b.days));
+  if(!rows.length){ body.innerHTML='<tr><td colspan="6" class="empty-note">판매 이력이 있는 품목이 없습니다.</td></tr>'; return; }
+  body.innerHTML=rows.map(function(r){
+    const urgent=r.days!==null&&r.days<=2;
+    const warn=r.days!==null&&r.days<=5;
+    return '<tr><td>'+catBadge(r.cat)+'</td><td>'+esc(r.name)+'</td>'
+      +'<td style="font-weight:700">'+nf(r.left)+'</td>'
+      +'<td>'+r.avg.toFixed(1)+'개</td>'
+      +'<td style="font-weight:800;color:'+(urgent?'var(--red)':warn?'var(--orange)':'var(--green)')+'">'+(r.days===null?'—':r.days+'회 운영분')+'</td>'
+      +'<td>'+(urgent?'<span class="badge badge-red">즉시 발주</span>':warn?'<span class="badge badge-amber">발주 검토</span>':'<span class="badge badge-green">여유</span>')+'</td></tr>';
+  }).join('');
+}
+
+// 발주서 엑셀 업로드
+function uploadOrderFile(input){
+  const file=input.files&&input.files[0];
+  if(!file) return;
+  const reader=new FileReader();
+  reader.onload=function(e){
+    try{
+      const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
+      const ws=wb.Sheets[wb.SheetNames[0]];
+      const aoa=XLSX.utils.sheet_to_json(ws,{header:1,raw:false});
+      // 머리글 행 찾기 (제품명 + 발주량)
+      let h=-1;
+      for(let i=0;i<Math.min(aoa.length,15);i++){
+        const row=(aoa[i]||[]).map(c=>String(c||'').replace(/\s/g,''));
+        if(row.some(c=>c.indexOf('제품명')!==-1)&&row.some(c=>c.indexOf('발주량')!==-1)){ h=i; break; }
+      }
+      if(h===-1){ alert('❌ 발주서 양식을 인식하지 못했습니다.\n"제품명"과 "발주량" 열이 있는 파일인지 확인해주세요.'); input.value=''; return; }
+      const cols=(aoa[h]||[]).map(c=>String(c||'').replace(/\s/g,''));
+      const iCat=cols.findIndex(c=>c.indexOf('구분')!==-1);
+      const iName=cols.findIndex(c=>c.indexOf('제품명')!==-1);
+      const iSpec=cols.findIndex(c=>c.indexOf('규격')!==-1);
+      const iIns=cols.findIndex(c=>c.indexOf('입수')!==-1);
+      const iBox=cols.findIndex(c=>c.trim()==='BOX');
+      const iTot=cols.findIndex(c=>c.indexOf('전체수량')!==-1);
+      const iOrd=cols.findIndex(c=>c.indexOf('발주량')!==-1);
+      // 입고 회차 열
+      const roundCols=[];
+      cols.forEach(function(c,idx){
+        const m=c.match(/입고\(?(\d+)회차\)?/);
+        if(m) roundCols.push({idx:idx,round:Number(m[1])});
+      });
+      // 회차 날짜 행 (머리글 바로 아래) — '08월 27일' / '2026-08-27' 형식 모두 인식
+      const dateRow=aoa[h+1]||[];
+      function parseRoundDate(v){
+        const t=String(v||'').trim();
+        if(!t) return '';
+        let m=t.match(/(\d{4})[-./](\d{1,2})[-./](\d{1,2})/);
+        if(m) return m[1]+'-'+String(m[2]).padStart(2,'0')+'-'+String(m[3]).padStart(2,'0');
+        m=t.match(/(\d{1,2})\s*월\s*(\d{1,2})\s*일/);
+        if(m){
+          const mm=Number(m[1]), dd=Number(m[2]);
+          const now=new Date();
+          // 연도가 없으므로 오늘 기준으로 추정 (6개월 이상 과거면 다음 해로 간주)
+          let yr=now.getFullYear();
+          const cand=new Date(yr,mm-1,dd);
+          if((now-cand)/86400000 > 180) yr++;
+          return yr+'-'+String(mm).padStart(2,'0')+'-'+String(dd).padStart(2,'0');
+        }
+        return '';
+      }
+
+      const o=getOrder();
+      o.items=o.items||{}; o.rounds=o.rounds||{};
+      roundCols.forEach(function(rc){
+        const d=parseRoundDate(dateRow[rc.idx]);
+        if(d) o.rounds[rc.round]=d;
+        else if(o.rounds[rc.round]===undefined) o.rounds[rc.round]='';
+      });
+
+      let cat='', ok=0, byOrder=0; const miss=[];
+      const usedByCat={}, posByCat={};
+      for(let i=h+1;i<aoa.length;i++){
+        const row=aoa[i]||[];
+        const c=String(row[iCat]||'').trim(); if(c) cat=c;
+        const raw=String(row[iName]||'').trim();
+        if(!raw||!cat) continue;
+        if(raw.indexOf('합계')!==-1||cat.indexOf('합계')!==-1) continue;
+        const nc=normCat(cat);
+        usedByCat[nc]=usedByCat[nc]||new Set();
+        posByCat[nc]=(posByCat[nc]===undefined)?0:posByCat[nc];
+        const m=matchItem(cat,raw,usedByCat[nc],posByCat[nc]);
+        posByCat[nc]++;
+        if(!m){ miss.push(cat+' / '+raw); continue; }
+        usedByCat[nc].add(m.name);
+        if(m.byOrder) byOrder++;
+        const k=itemKey(m.cat,m.name);
+        const rec=o.items[k]||{rounds:{}};
+        rec.rounds=rec.rounds||{};
+        if(iSpec>=0&&row[iSpec]) rec.spec=String(row[iSpec]).trim();
+        if(iIns>=0&&row[iIns]) rec.ins=Number(String(row[iIns]).replace(/,/g,''))||rec.ins;
+        if(iBox>=0&&row[iBox]) rec.box=Number(String(row[iBox]).replace(/,/g,''))||rec.box;
+        if(iTot>=0&&row[iTot]) rec.total=Number(String(row[iTot]).replace(/,/g,''))||0;
+        roundCols.forEach(function(rc){
+          const v=row[rc.idx];
+          if(v!==undefined&&v!==null&&String(v).trim()!==''){
+            const n=Number(String(v).replace(/,/g,''));
+            if(isFinite(n)&&n>0) rec.rounds[rc.round]=n;
+          }
+        });
+        o.items[k]=rec; ok++;
+      }
+      setOrder(o);
+      renderOrderTab();
+      alert('✅ 발주서 '+ok+'개 품목을 불러왔습니다.'
+        +(byOrder?'\n(이름이 달라 순서로 대응한 품목 '+byOrder+'건 — 표에서 확인해주세요)':'')
+        +(miss.length?'\n\n⚠️ 원장에 없는 품목 '+miss.length+'건은 건너뛰었습니다:\n'+miss.slice(0,6).join('\n'):'')
+        +'\n\n※ 재고에는 아직 반영되지 않았습니다.\n실제 물품이 도착하면 회차를 선택하고 「입고 확정」을 눌러주세요.');
+    }catch(err){ alert('❌ 파일을 읽지 못했습니다: '+err.message); }
+    input.value='';
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function exportOrderExcel(){
+  const o=getOrder();
+  const rounds=orderRoundList();
+  const head=['구분','제품명','규격','재고단위','박스입수량','전체수량','BOX','발주량','남은 수량']
+    .concat(rounds.map(n=>'입고('+n+'회차)'));
+  const sub=['','','','','','','','','' ].concat(rounds.map(n=>o.rounds[n]||''));
+  const rows=orderRows();
+  const body=rows.map(function(r){
+    const cum=r.cum;
+    return [catStyle(r.cat).label||r.cat, r.maker+' '+r.name, r.spec, 'EA', r.ins, r.total, r.box,
+            Number(r.rounds[rounds[rounds.length-1]]||0), Math.max(0,r.total-cum)]
+      .concat(rounds.map(n=>Number(r.rounds[n]||0)));
+  });
+  const sum=['합계','','','','',rows.reduce((s,r)=>s+r.total,0),rows.reduce((s,r)=>s+r.box,0),
+             rows.reduce((s,r)=>s+Number(r.rounds[rounds[rounds.length-1]]||0),0),
+             rows.reduce((s,r)=>s+Math.max(0,r.total-r.cum),0)]
+    .concat(rounds.map(n=>rows.reduce((s,r)=>s+Number(r.rounds[n]||0),0)));
+  const wb=XLSX.utils.book_new();
+  aoaSheet('발주서',[['▣ 유한대학교 천원매점 물품 입고 계획'],[],head,sub].concat(body).concat([sum]),wb);
+  XLSX.writeFile(wb,'유한대_발주서_'+fDate(new Date()).replace(/-/g,'').slice(4)+'.xlsx');
 }
 
 // ══════════════════════════════════════════════════════════════
