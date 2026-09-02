@@ -123,6 +123,36 @@ tfoot td{background:var(--gray50);font-weight:800;color:var(--gray900);border-to
 .cat-legend{display:flex;flex-wrap:wrap;gap:7px;background:#fff;border-radius:9px;padding:10px 13px;box-shadow:0 1px 5px rgba(0,0,0,.07);margin-bottom:12px;align-items:center}
 .cat-legend .lg-title{font-size:11px;font-weight:700;color:var(--gray700);margin-right:3px}
 
+/* ── 물품 수정 모달 ── */
+.edit-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:400;align-items:center;justify-content:center;padding:18px}
+.edit-overlay.show{display:flex}
+.edit-modal{background:#fff;border-radius:14px;width:100%;max-width:520px;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 12px 40px rgba(0,0,0,.28)}
+.edit-head{padding:14px 17px;border-bottom:2px solid var(--primary);display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.edit-head h3{font-size:14px;font-weight:800;color:var(--primary)}
+.edit-head .eh-sub{font-size:11px;color:var(--gray500);width:100%}
+.edit-body{padding:13px 17px;overflow-y:auto;flex:1}
+.edit-foot{padding:12px 17px;border-top:1px solid var(--gray200);display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+.ecount{background:var(--primary);color:#fff;border-radius:20px;padding:3px 11px;font-size:11px;font-weight:800}
+.ecount.warn{background:var(--orange)}
+.ecat{border:1.5px solid var(--gray200);border-radius:10px;margin-bottom:7px;overflow:hidden}
+.ecat.on{border-color:var(--primary);box-shadow:0 0 0 2px rgba(15,118,110,.1)}
+.ecat-head{display:flex;align-items:center;gap:8px;padding:9px 11px;cursor:pointer;background:#fff;border:none;width:100%;text-align:left;font-family:inherit}
+.ecat-head .en{flex:1;font-size:13px;font-weight:700;color:var(--gray900)}
+.ecat-head .ep{font-size:11px;color:var(--primary);font-weight:600}
+.ecat-items{display:none;background:var(--gray50);padding:7px;border-top:1px solid var(--gray200)}
+.ecat.open .ecat-items{display:block}
+.eitem{display:flex;align-items:center;gap:8px;width:100%;padding:8px 9px;margin-bottom:5px;border:1.5px solid var(--gray200);border-radius:8px;background:#fff;cursor:pointer;font-family:inherit;text-align:left}
+.eitem:last-child{margin-bottom:0}
+.eitem.on{border-color:var(--primary);background:var(--primary-light)}
+.eitem .er{width:15px;height:15px;border-radius:50%;border:2px solid var(--gray300);flex-shrink:0;position:relative}
+.eitem.on .er{border-color:var(--primary)}
+.eitem.on .er:after{content:'';position:absolute;inset:3px;border-radius:50%;background:var(--primary)}
+.eitem .ei{flex:1;font-size:12.5px;font-weight:500;color:var(--gray900)}
+.eitem .eq{font-size:10px;font-weight:700;color:var(--green)}
+.eitem:disabled{opacity:.5;cursor:not-allowed;background:var(--gray100)}
+.eitem:disabled .eq{color:var(--red)}
+.edit-lock{background:#fef2f2;border:1.5px solid var(--red);color:#991b1b;border-radius:9px;padding:11px 13px;font-size:12px;line-height:1.7;font-weight:600}
+
 /* 설정 */
 .settings-section{background:#fff;border-radius:9px;padding:14px;box-shadow:0 1px 5px rgba(0,0,0,.07);margin-bottom:12px}
 .settings-section h3{font-size:12px;font-weight:700;color:var(--gray900);margin-bottom:10px;padding-bottom:7px;border-bottom:1px solid var(--gray200)}
@@ -274,7 +304,7 @@ tr.waiting-row td{opacity:.62}
         <thead><tr>
           <th style="width:38px">#</th><th>학과</th><th>학번</th><th>성명</th>
           <th style="width:70px">신청시간</th><th style="width:56px">결제</th><th style="width:66px">수령</th>
-          <th>선택 물품 (대분류 4)</th><th style="width:60px">승인</th>
+          <th>선택 물품 (대분류 4)</th><th style="width:48px">수정</th><th style="width:56px">승인</th>
         </tr></thead>
         <tbody id="liveListBody"></tbody>
       </table>
@@ -680,6 +710,21 @@ tr.waiting-row td{opacity:.62}
     <div style="display:flex;gap:7px;flex-wrap:wrap">
       <button class="save-btn" style="background:var(--blue)" onclick="seedDemo()">🧪 샘플 신청 데이터 생성</button>
       <button class="save-btn" style="background:var(--red)" onclick="clearApps()">🗑️ 신청 데이터 전체 삭제</button>
+    </div>
+  </div>
+</div>
+
+<div class="edit-overlay" id="editOverlay">
+  <div class="edit-modal">
+    <div class="edit-head">
+      <h3>✏️ 선택 물품 수정</h3>
+      <span class="ecount" id="editCount">0 / 4</span>
+      <div class="eh-sub" id="editWho"></div>
+    </div>
+    <div class="edit-body" id="editBody"></div>
+    <div class="edit-foot">
+      <button class="hbtn hbtn-ghost" style="background:var(--gray200);color:var(--gray700);border:none;padding:8px 16px" onclick="closeEdit()">취소</button>
+      <button class="hbtn hbtn-green" style="padding:8px 18px" id="editSaveBtn" onclick="saveEdit()">💾 저장</button>
     </div>
   </div>
 </div>
@@ -1148,7 +1193,7 @@ function renderLiveList(){
   const day=allData.filter(r=>r.date===selectedLiveDate).sort((a,b)=>String(a.applyTime)>String(b.applyTime)?1:-1);
   document.getElementById('liveListCount').textContent='총 '+day.length+'명 · 물량 '+(day.length*PICK_REQUIRED)+'개';
   if(!day.length){
-    tbody.innerHTML='<tr><td colspan="8" class="empty-note">해당 날짜의 신청 데이터가 없습니다.</td></tr>';
+    tbody.innerHTML='<tr><td colspan="9" class="empty-note">해당 날짜의 신청 데이터가 없습니다.</td></tr>';
     return;
   }
   tbody.innerHTML=day.map(function(r,i){
@@ -1164,6 +1209,7 @@ function renderLiveList(){
       +'<td>'+pay+'</td>'
       +'<td>'+pickup+'</td>'
       +'<td>'+picksHtml(r)+'</td>'
+      +'<td style="text-align:center"><button class="filter-btn" style="padding:3px 9px;'+(ap?'background:var(--gray300);color:var(--gray500)':'background:var(--purple)')+'" onclick="openEdit(\''+esc(r.date)+'\',\''+esc(r.studentId)+'\')">✏️</button></td>'
       +'<td style="text-align:center"><input type="checkbox" class="approval-cb" data-date="'+esc(r.date)+'" data-sid="'+esc(r.studentId)+'"'+(ap?' checked':'')+'></td>'
       +'</tr>';
   }).join('');
@@ -1202,6 +1248,144 @@ function toggleSoldOut(){
 }
 
 // ══════════════════════════════════════════════════════════════
+//  선택 물품 수정 (관리자 권한)
+//   · 학생 화면과 동일한 규칙 검증: 대분류 4개, 중복 불가, 품절 차단
+//   · 승인된 건은 잠금 — 승인 취소 후에만 수정 가능
+// ══════════════════════════════════════════════════════════════
+let editTarget=null;   // {date, studentId, name}
+let editPicks={};      // {대분류: 품목}
+
+function openEdit(date,sid){
+  const rec=allData.find(r=>r.date===date && String(r.studentId)===String(sid));
+  if(!rec){ alert('신청 정보를 찾을 수 없습니다.'); return; }
+
+  document.getElementById('editWho').textContent=
+    rec.date+' · '+rec.dept+' '+rec.grade+' · '+rec.studentId+' '+rec.name;
+
+  // 승인된 건은 수정 잠금
+  if(isApproved(rec)){
+    editTarget=null;
+    document.getElementById('editBody').innerHTML=
+      '<div class="edit-lock">🔒 <b>승인(수령 확인)이 완료된 신청입니다.</b><br>'
+      +'이미 물품을 수령했을 수 있어 수정할 수 없습니다.<br><br>'
+      +'수정하려면 실시간·승인 탭에서 <b>승인 체크를 해제</b>한 뒤 다시 시도하세요.</div>';
+    document.getElementById('editCount').textContent='잠김';
+    document.getElementById('editCount').className='ecount warn';
+    document.getElementById('editSaveBtn').style.display='none';
+    document.getElementById('editOverlay').classList.add('show');
+    return;
+  }
+
+  editTarget={date:date,studentId:String(sid),name:rec.name};
+  editPicks={};
+  (rec.picks||[]).forEach(p=>{ editPicks[p.cat]=p.item; });
+  document.getElementById('editSaveBtn').style.display='';
+  renderEditBody();
+  document.getElementById('editOverlay').classList.add('show');
+}
+
+function renderEditBody(){
+  const sold=daySoldMap(editTarget.date);
+  const plan=getDayPlan(editTarget.date);
+  const body=document.getElementById('editBody');
+  body.innerHTML=CATALOG.map(function(g,gi){
+    const picked=editPicks[g.c];
+    const items=g.items.map(function(it,ii){
+      const k=itemKey(g.c,it.n);
+      const on=picked===it.n;
+      // 본인이 이미 고른 품목은 재고에서 1개 되돌려 계산 (교체 시 자기 자신 때문에 막히지 않도록)
+      const mine=(picked===it.n)?1:0;
+      const rem=Math.max(0,(plan.items[k]||0)-(sold[k]||0)+mine);
+      const out=rem<=0;
+      return '<button type="button" class="eitem'+(on?' on':'')+'"'+(out&&!on?' disabled':'')
+        +' onclick="pickEdit('+gi+','+ii+')">'
+        +'<span class="er"></span><span class="ei">'+esc(it.n)+'</span>'
+        +'<span class="eq">'+(out?'일시품절':'잔여 '+rem)+'</span></button>';
+    }).join('');
+    return '<div class="ecat'+(picked?' on':'')+'" id="ecat'+gi+'" style="border-left:5px solid '+catColor(g.c)+'">'
+      +'<button type="button" class="ecat-head" onclick="toggleEcat('+gi+')">'
+        +'<span>'+g.icon+'</span>'
+        +'<span class="en">'+esc(g.c)+(picked?'<div class="ep">✔ '+esc(picked)+'</div>':'')+'</span>'
+        +'<span style="font-size:11px;color:var(--gray500)">▼</span>'
+      +'</button>'
+      +'<div class="ecat-items">'+items+'</div></div>';
+  }).join('');
+  const n=Object.keys(editPicks).length;
+  const c=document.getElementById('editCount');
+  c.textContent=n+' / 4';
+  c.className='ecount'+(n===PICK_REQUIRED?'':' warn');
+}
+
+function toggleEcat(gi){
+  const box=document.getElementById('ecat'+gi);
+  const was=box.classList.contains('open');
+  document.querySelectorAll('.ecat').forEach(b=>b.classList.remove('open'));
+  if(!was) box.classList.add('open');
+}
+
+function pickEdit(gi,ii){
+  const g=CATALOG[gi], it=g.items[ii];
+  const cur=editPicks[g.c];
+  if(cur===it.n){ delete editPicks[g.c]; }
+  else if(cur){ editPicks[g.c]=it.n; }
+  else {
+    if(Object.keys(editPicks).length>=PICK_REQUIRED){
+      alert('대분류는 4개까지만 선택할 수 있습니다.\n기존 선택을 먼저 해제하세요.');
+      return;
+    }
+    editPicks[g.c]=it.n;
+  }
+  renderEditBody();
+  const box=document.getElementById('ecat'+gi);
+  if(box) box.classList.add('open');
+}
+
+function closeEdit(){
+  document.getElementById('editOverlay').classList.remove('show');
+  editTarget=null; editPicks={};
+}
+
+function saveEdit(){
+  if(!editTarget) { closeEdit(); return; }
+  const cats=CATALOG.map(g=>g.c).filter(c=>editPicks[c]);
+  if(cats.length!==PICK_REQUIRED){
+    alert('대분류 '+PICK_REQUIRED+'개를 모두 선택해야 합니다.\n현재 '+cats.length+'개 선택');
+    return;
+  }
+  const arr=cats.map(c=>({cat:c,item:editPicks[c]}));
+  const rec=allData.find(r=>r.date===editTarget.date && String(r.studentId)===editTarget.studentId);
+  if(rec && isApproved(rec)){ alert('🔒 승인된 신청은 수정할 수 없습니다.'); closeEdit(); return; }
+
+  const before=(rec.picks||[]).map(p=>p.cat+':'+p.item).join(' / ');
+  const after=arr.map(p=>p.cat+':'+p.item).join(' / ');
+  if(before===after){ closeEdit(); return; }
+  if(!confirm('선택 물품을 아래와 같이 변경합니다.\n\n[변경 전]\n'+before+'\n\n[변경 후]\n'+after)) return;
+
+  if(IS_DEMO){
+    const apps=LS.get('apps',[])||[];
+    const t=apps.find(r=>r.date===editTarget.date && String(r.studentId)===editTarget.studentId);
+    if(t){ t.picks=arr; LS.set('apps',apps); }
+    allData=normalize(apps);
+    closeEdit();
+    renderLive(); renderLiveList(); renderStockTab();
+    return;
+  }
+
+  const params={action:'updatePicks',date:editTarget.date,studentId:editTarget.studentId};
+  arr.forEach((p,i)=>{ params['cat'+(i+1)]=p.cat; params['item'+(i+1)]=p.item; });
+  document.getElementById('editSaveBtn').textContent='저장 중...';
+  fetchFromGAS(params,function(res,err){
+    document.getElementById('editSaveBtn').textContent='💾 저장';
+    if(err||!res){ alert('❌ 저장에 실패했습니다. 네트워크를 확인해주세요.'); return; }
+    if(res.status==='approved_lock'){ alert('🔒 '+res.message); closeEdit(); loadAll(); return; }
+    if(res.status!=='ok'){ alert('❌ '+(res.message||'저장에 실패했습니다.')); return; }
+    if(rec) rec.picks=arr;
+    closeEdit();
+    lastSig='';                      // 다음 폴링에서 강제 갱신
+    renderLive(); renderLiveList(); renderStockTab();
+  });
+}
+
 //  ② 재고현황
 // ══════════════════════════════════════════════════════════════
 function stockRows(){
@@ -2408,7 +2592,7 @@ document.addEventListener('DOMContentLoaded',function(){
   //  1) 데모: storage 이벤트로 학생 신청 즉시 반영 (지연 0초)
   //  2) GAS : 실시간 탭에서 5초마다 신청내역만 가볍게 재조회
   //  3) 창을 다시 활성화하면 즉시 갱신
-  let liveBusy=false, liveFailCount=0, livePoll=null;
+  let liveBusy=false, liveFailCount=0, livePoll=null, lastSig='';
 
   function refreshLiveOnly(){
     if(liveBusy) return;
@@ -2437,18 +2621,19 @@ document.addEventListener('DOMContentLoaded',function(){
       const errBar=document.getElementById('gasErrBar');
       if(errBar) errBar.remove();
 
-      // 건수가 그대로면 여기서 종료 — 전체 데이터를 받지 않는다
-      if(Number(res.total)===allData.length){ liveBusy=false; return; }
+      // 건수와 내용 서명이 모두 그대로면 종료 — 전체 데이터를 받지 않는다
+      if(Number(res.total)===allData.length && String(res.sig)===lastSig){ liveBusy=false; return; }
 
-      // 늘었을 때만 전체 조회
+      // 건수가 늘었거나 시트에서 내용이 수정되었을 때만 전체 조회
       fetchFromGAS({action:'getAll'},function(data,err2){
         liveBusy=false;
         if(err2||!Array.isArray(data)) return;
         const next=normalize(data);
-        if(next.length===allData.length) return;
+        const grew = next.length>allData.length;
+        lastSig=String(res.sig);
         allData=next;
         buildLiveDateTabs(); renderLive(); renderLiveList();
-        pingNewApplication();
+        if(grew) pingNewApplication();
       });
     });
   }
