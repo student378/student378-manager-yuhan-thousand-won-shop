@@ -562,6 +562,14 @@ tr.waiting-row td{opacity:.62}
         <button class="filter-btn ghost" onclick="exportOrderExcel()">📤 발주서 엑셀 저장</button>
         <button class="filter-btn ghost" onclick="autoFillNextOrder()">🔮 판매속도로 다음 발주량 제안</button>
       </div>
+      <div style="margin-top:13px;padding:11px 13px;background:#fef2f2;border:1.5px solid var(--red);border-radius:9px">
+        <div style="font-size:12px;font-weight:700;color:#991b1b;margin-bottom:5px">⚠️ 발주서 기준으로 처음부터 다시 시작</div>
+        <div style="font-size:11px;color:#7f1d1d;line-height:1.7;margin-bottom:8px">
+          기존 재고·판매 기록·승인 기록을 <b>모두 지우고</b>, 선택한 회차의 발주량을 최초 입고로 확정합니다.<br>
+          운영 시작 전 초기 세팅이나 데이터가 꼬였을 때만 사용하세요. <b>되돌릴 수 없습니다.</b>
+        </div>
+        <button class="save-btn" style="background:var(--red)" onclick="resetToOrder()">🔄 초기화 후 이 회차로 입고 확정</button>
+      </div>
       <div class="msg-ok" id="msgOrder">✅ 저장되었습니다.</div>
     </div>
   </div>
@@ -2287,7 +2295,7 @@ function renderOrderTab(){
   const sel=document.getElementById('orderRound');
   const cur=sel.value;
   const rounds=orderRoundList();
-  sel.innerHTML=rounds.map(n=>'<option value="'+n+'">'+n+'회차'+(o.rounds[n]?' ('+o.rounds[n]+')':'')+'</option>').join('');
+  sel.innerHTML=rounds.map(n=>'<option value="'+n+'">'+n+'회차'+(o.rounds[n]?' ('+o.rounds[n]+')':'')+((o.applied&&o.applied[n])?' ✅확정':'')+'</option>').join('');
   sel.value=(cur&&rounds.indexOf(Number(cur))!==-1)?cur:rounds[rounds.length-1];
   document.getElementById('orderRoundDate').value=o.rounds[sel.value]||'';
 
@@ -2428,7 +2436,7 @@ function applyRoundToStock(){
   if(!rows.length){ alert(round+'회차에 입력된 발주량이 없습니다.\n표에 수량을 입력하고 「표 저장」을 먼저 누르세요.'); return; }
   const sum=rows.reduce((s,r)=>s+Number(r.rounds[round]),0);
   if(o.applied&&o.applied[round]){
-    if(!confirm('⚠️ '+round+'회차는 이미 입고 확정되었습니다.\n다시 확정하면 재고가 중복으로 더해집니다.\n\n그래도 진행할까요?')) return;
+    if(!confirm('⚠️ '+round+'회차는 이미 '+o.applied[round]+'에 입고 확정되었습니다.\n\n다시 확정하면 재고가 '+nf(sum)+'개 더 늘어납니다(중복).\n\n그래도 진행할까요?')) return;
   } else {
     if(!confirm('📦 '+round+'회차 입고를 확정합니다.\n\n대상 '+rows.length+'개 품목 · 총 '+nf(sum)+'개\n\n물품원장(학생 화면 재고)에 더해집니다. 계속할까요?')) return;
   }
@@ -2445,6 +2453,69 @@ function applyRoundToStock(){
   if(!IS_DEMO) fetchFromGAS({action:'saveStock',stock:JSON.stringify(ov)},function(){});
   alert('✅ '+round+'회차 입고 '+nf(sum)+'개를 재고에 반영했습니다.');
   renderOrderTab(); renderStockTab(); renderLive();
+}
+
+// ★ 초기화 후 입고 확정 — 재고를 "더하지 않고 덮어쓴다"
+//   기존 재고 하드코딩 값(5,146)을 버리고 발주서 회차 값(5,056)을 최초 입고로 삼는다.
+function resetToOrder(){
+  const round=document.getElementById('orderRound').value||'1';
+  const o=getOrder();
+  const rows=orderRows();
+  const target=rows.filter(r=>Number(r.rounds[round]||0)>0);
+  if(!target.length){
+    alert('❌ '+round+'회차에 입력된 발주량이 없습니다.\n발주서를 먼저 업로드하거나 표에 수량을 입력하세요.');
+    return;
+  }
+  const sum=target.reduce((s,r)=>s+Number(r.rounds[round]),0);
+  const appCnt=allData.length;
+  const base=getStockMap();
+  const curSum=rows.reduce((s,r)=>s+(base[r.key]||0),0);
+
+  // 차이 나는 품목 미리 보여주기
+  const diff=rows.map(function(r){
+    const now=base[r.key]||0, next=Number(r.rounds[round]||0);
+    return {name:r.name, now:now, next:next, gap:next-now};
+  }).filter(d=>d.gap!==0);
+
+  let msg='🔄 발주서 '+round+'회차 기준으로 초기화합니다.\n\n'
+    +'[재고]\n  현재 '+nf(curSum)+'개  →  '+nf(sum)+'개  ('+(sum-curSum>=0?'+':'')+nf(sum-curSum)+')\n';
+  if(diff.length){
+    msg+='\n[수량이 바뀌는 품목 '+diff.length+'개]\n';
+    diff.slice(0,8).forEach(d=>{ msg+='  · '+d.name+': '+d.now+' → '+d.next+'\n'; });
+    if(diff.length>8) msg+='  … 외 '+(diff.length-8)+'개\n';
+  }
+  msg+='\n[삭제되는 데이터]\n  · 신청 '+appCnt+'건 전체\n  · 승인 기록 전체\n  · 기존 재고 수정값 전체\n'
+    +'\n⚠️ 되돌릴 수 없습니다. 계속할까요?';
+
+  if(!confirm(msg)) return;
+  if(!confirm('마지막 확인입니다.\n\n신청 '+appCnt+'건과 승인 기록이 모두 삭제되고\n재고가 '+nf(sum)+'개로 초기화됩니다.\n\n정말 진행할까요?')) return;
+
+  // ① 재고를 발주서 회차 값으로 "덮어쓰기" (누적 아님)
+  const ov={};
+  rows.forEach(function(r){ ov[r.key]=Number(r.rounds[round]||0); });
+  LS.set('stock_override',ov);
+
+  // ② 신청·승인 기록 초기화
+  LS.set('apps',[]);
+  approvedSet=new Set(); LS.set('approved',[]);
+  Object.keys(localStorage).filter(k=>k.indexOf('store_')===0).forEach(k=>localStorage.removeItem(k));
+
+  // ③ 이 회차만 확정 처리, 이후 회차는 미확정으로 되돌림
+  o.applied={}; o.applied[round]=fDate(new Date());
+  setOrder(o);
+
+  allData=[];
+  STOCK=getStockMap();
+
+  if(!IS_DEMO){
+    fetchFromGAS({action:'saveStock',stock:JSON.stringify(ov)},function(){});
+    fetchFromGAS({action:'saveApproved',keys:''},function(){});
+  }
+
+  alert('✅ 초기화 완료\n\n재고: '+nf(sum)+'개 ('+round+'회차 입고 확정)\n신청·승인 기록: 전체 삭제됨'
+    +(IS_DEMO?'':'\n\n⚠️ 구글 시트의 「신청내역」 시트는 자동으로 지워지지 않습니다.\n필요하면 시트에서 직접 행을 삭제해주세요.'));
+
+  renderOrderTab(); renderStockTab(); renderLive(); renderLiveList(); loadAll();
 }
 
 // 판매 속도로 다음 발주량 제안
