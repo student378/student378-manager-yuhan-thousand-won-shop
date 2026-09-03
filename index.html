@@ -729,6 +729,25 @@ tr.waiting-row td{opacity:.62}
   </div>
 
   <div class="settings-section">
+    <h3>🙋 드리미 서비스 개시 설정</h3>
+    <div style="font-size:11px;color:var(--gray500);line-height:1.7;margin-bottom:10px">
+      꺼두면 학생 신청 화면에서 <b>드리미 서비스 버튼이 보이지 않고</b>, 직접 수령만 선택할 수 있습니다.<br>
+      운영 학생 인력이 배치된 날에만 켜서 사용하세요.
+    </div>
+    <div class="toggle-row">
+      <label class="toggle-switch"><input type="checkbox" id="setDrimiOn" onchange="saveDrimi()"><span class="toggle-slider"></span></label>
+      <span class="toggle-label">드리미 서비스 운영</span>
+      <span id="drimiStateBadge" style="margin-left:4px"></span>
+    </div>
+    <div class="setting-row" style="margin-top:8px">
+      <span class="setting-label">안내 문구</span>
+      <input class="setting-input" id="setDrimiMsg" placeholder="매점 현장에서 운영 학생이 신청한 4개 품목을 대신 담아 전달해 드립니다.">
+      <button class="save-btn" onclick="saveDrimi()">저장</button>
+    </div>
+    <div class="msg-ok" id="msgDrimi">✅ 저장되었습니다. 학생 화면에 즉시 반영됩니다.</div>
+  </div>
+
+  <div class="settings-section">
     <h3>⛔ 판매 종료 설정</h3>
     <div class="toggle-row">
       <label class="toggle-switch"><input type="checkbox" id="setSoldOut" onchange="toggleSoldOut()"><span class="toggle-slider"></span></label>
@@ -951,7 +970,8 @@ function getAccount(){ return LS.get('account',{bank:'카카오뱅크',no:'3333-
 function getSoldOut(){ return LS.get('soldout',{manual:false,msg:'금일 천원매점 판매가 종료되었습니다. 감사합니다.'}); }
 function getBasis(){ return LS.get('basis','approve'); }
 // 학생 화면 노출 설정 (기본: 잔여량 숨김)
-function getDisplay(){ return LS.get('display',{showStock:false,showHeadcount:true}); }
+function getDisplay(){ return LS.get('display',{showStock:false,showHeadcount:true,drimiOn:true,drimiMsg:''}); }
+function getDrimiMsg(){ return getDisplay().drimiMsg||'매점 현장에서 운영 학생이 신청한 4개 품목을 대신 담아 전달해 드립니다.'; }
 function getStockMap(){
   const ov=LS.get('stock_override',{})||{};
   const map={};
@@ -2716,6 +2736,9 @@ function initSettings(){
 
   const disp=getDisplay();
   document.getElementById('setShowStock').checked=!!disp.showStock;
+  document.getElementById('setDrimiOn').checked=disp.drimiOn!==false;
+  document.getElementById('setDrimiMsg').value=disp.drimiMsg||'';
+  renderDrimiBadge();
   document.getElementById('setShowHeadcount').checked=disp.showHeadcount!==false;
 
   const a=getAccount();
@@ -3020,11 +3043,25 @@ function saveBasis(){
   renderLive(); renderStockTab(); renderDaily(); renderItemTab(); renderPlanEditor();
 }
 
+function saveDrimi(){
+  const d=getDisplay();
+  d.drimiOn=document.getElementById('setDrimiOn').checked;
+  d.drimiMsg=document.getElementById('setDrimiMsg').value||'';
+  LS.set('display',d);
+  if(!IS_DEMO) fetchFromGAS({action:'saveSettings',display:JSON.stringify(d)},function(){});
+  showMsg('msgDrimi'); renderDrimiBadge();
+}
+function renderDrimiBadge(){
+  const b=document.getElementById('drimiStateBadge'); if(!b) return;
+  const on=getDisplay().drimiOn!==false;
+  b.innerHTML = on ? '<span class="badge badge-green">운영 중 · 학생이 선택 가능</span>'
+                   : '<span class="badge badge-gray">미운영 · 직접 수령만 가능</span>';
+}
+
 function saveShowStock(){
-  const d={
-    showStock:document.getElementById('setShowStock').checked,
-    showHeadcount:document.getElementById('setShowHeadcount').checked
-  };
+  const d=getDisplay();                       // 기존 값(드리미 설정 등) 보존
+  d.showStock=document.getElementById('setShowStock').checked;
+  d.showHeadcount=document.getElementById('setShowHeadcount').checked;
   LS.set('display',d);
   if(!IS_DEMO) fetchFromGAS({action:'saveSettings',display:JSON.stringify(d)},function(){});
   showMsg('msgShowStock');
