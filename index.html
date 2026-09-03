@@ -1368,6 +1368,7 @@ function openEdit(date,sid){
 }
 
 function renderEditBody(){
+  if(!editTarget) return;              // 승인 잠금 상태에서는 그리지 않음
   const sold=daySoldMap(editTarget.date);
   const plan=getDayPlan(editTarget.date);
   const body=document.getElementById('editBody');
@@ -1400,6 +1401,7 @@ function renderEditBody(){
 }
 
 function toggleEcat(gi){
+  if(!editTarget) return;
   const box=document.getElementById('ecat'+gi);
   const was=box.classList.contains('open');
   document.querySelectorAll('.ecat').forEach(b=>b.classList.remove('open'));
@@ -1407,6 +1409,7 @@ function toggleEcat(gi){
 }
 
 function pickEdit(gi,ii){
+  if(!editTarget) return;              // 잠금 상태에서는 선택 불가
   const g=CATALOG[gi], it=g.items[ii];
   const cur=editPicks[g.c];
   if(cur===it.n){ delete editPicks[g.c]; }
@@ -2982,6 +2985,40 @@ function saveOperDays(){
 function renderPlanList(){ renderOperDays(); }
 function renderFixedDays(){ renderOperDays(); }
 function planListDefault(){ renderOperDays(); }
+
+// ── 운영 일정 저장 ──
+function saveSchedule(){
+  const days=[...document.querySelectorAll('.dowcb')].filter(c=>c.checked).map(c=>Number(c.value));
+  const sc={
+    start:document.getElementById('setStart').value,
+    end:document.getElementById('setEnd').value,
+    days:days.length?days:[0,1,2,3,4,5,6],
+    startTime:document.getElementById('setStartTime').value||'10:00',
+    endTime:document.getElementById('setEndTime').value||'16:00',
+    dailyLimit:Number(document.getElementById('setDailyLimit').value||0)
+  };
+  LS.set('schedule',sc);
+  if(!IS_DEMO) fetchFromGAS({action:'saveSettings',schedule:JSON.stringify(sc)},function(){});
+  showMsg('msgSchedule');
+  buildLiveDateTabs(); renderOperDays(); renderLive();
+}
+
+// ── 판매 종료 문구 저장 ──
+function saveSoldOutMsg(){
+  const so=getSoldOut();
+  so.msg=document.getElementById('setSoldOutMsg').value||'금일 천원매점 판매가 종료되었습니다. 감사합니다.';
+  LS.set('soldout',so);
+  if(!IS_DEMO) fetchFromGAS({action:'saveSettings',soldoutManual:String(so.manual),soldoutMsg:so.msg},function(){});
+  showMsg('msgSoldOut'); renderLive();
+}
+
+// ── 재고 차감 기준 저장 ──
+function saveBasis(){
+  const b=document.getElementById('setBasis').value;
+  LS.set('basis',b);
+  if(!IS_DEMO) fetchFromGAS({action:'saveSettings',basis:b},function(){});
+  renderLive(); renderStockTab(); renderDaily(); renderItemTab(); renderPlanEditor();
+}
 
 function saveShowStock(){
   const d={
