@@ -326,13 +326,15 @@ tr.waiting-row td{opacity:.62}
     <div class="table-panel-header">
       <h3>📋 품목별 재고 원장 (입고 · 판매 · 잔여)</h3>
       <input class="search-input" id="stockSearch" placeholder="품목/제조사 검색" oninput="renderStockTable()">
-      <button class="filter-btn" style="margin-left:auto" onclick="exportStockExcel()">📥 재고 엑셀</button>
+      <span id="soldoutCountBadge" style="font-size:11px"></span>
+      <button class="filter-btn ghost" style="margin-left:auto" onclick="clearAllManualSoldout()">↩️ 품절 일괄 해제</button>
+      <button class="filter-btn" onclick="exportStockExcel()">📥 재고 엑셀</button>
     </div>
     <div class="table-wrap">
       <table>
         <thead><tr>
           <th style="width:36px">연번</th><th>대분류</th><th>제조사</th><th>품명(소분류)</th>
-          <th class="c" style="width:64px">입고</th><th style="width:64px">판매</th><th style="width:64px">잔여</th><th style="width:130px">소진율</th>
+          <th class="c" style="width:64px">입고</th><th style="width:64px">판매</th><th style="width:64px">잔여</th><th style="width:118px">소진율</th><th style="width:96px">판매중지</th>
         </tr></thead>
         <tbody id="stockBody"></tbody>
         <tfoot id="stockFoot"></tfoot>
@@ -728,6 +730,52 @@ tr.waiting-row td{opacity:.62}
     <div class="msg-ok" id="msgShowStock">✅ 저장되었습니다. 학생 화면에 즉시 반영됩니다.</div>
   </div>
 
+  <div class="settings-section" style="border:2px solid var(--purple)">
+    <h3>🎁 꾸러미 데이 설정</h3>
+    <div style="font-size:11px;color:var(--gray500);line-height:1.7;margin-bottom:10px;background:#f5f3ff;border-left:3px solid var(--purple);padding:8px 11px;border-radius:5px">
+      비인기 품목을 모아 파는 날입니다. <b>켜면 학생은 품목을 고를 수 없고</b>, 아래에서 지정한 4개가 자동으로 확정됩니다.<br>
+      수령 방법도 <b>드리미 서비스로 고정</b>되어 운영 학생이 담아 전달합니다.
+    </div>
+    <div class="toggle-row">
+      <label class="toggle-switch"><input type="checkbox" id="setBundleOn" onchange="saveBundle()"><span class="toggle-slider"></span></label>
+      <span class="toggle-label">꾸러미 데이 운영</span>
+      <span id="bundleStateBadge" style="margin-left:4px"></span>
+    </div>
+    <div class="setting-row" style="margin-top:9px">
+      <span class="setting-label">꾸러미 이름</span>
+      <input class="setting-input" id="setBundleName" placeholder="예) 9월 알뜰 꾸러미" style="max-width:230px">
+      <span class="setting-label" style="min-width:60px">적용 날짜</span>
+      <input type="date" class="setting-input" id="setBundleDate" style="max-width:170px">
+      <span style="font-size:11px;color:var(--gray500)">비우면 운영일 전체</span>
+    </div>
+    <div class="setting-row">
+      <span class="setting-label">안내 문구</span>
+      <input class="setting-input" id="setBundleMsg" placeholder="재고 정리를 위한 특별 꾸러미입니다. 품목은 변경할 수 없습니다.">
+    </div>
+    <div style="display:flex;gap:7px;flex-wrap:wrap;margin:10px 0 8px">
+      <button class="filter-btn ghost" onclick="autoPickBundle()">🔮 재고 많은 품목으로 자동 구성</button>
+      <button class="filter-btn ghost" onclick="clearBundle()">선택 비우기</button>
+    </div>
+    <div class="table-wrap" style="max-height:300px;overflow-y:auto">
+      <table>
+        <thead><tr><th style="width:44px">순번</th><th>대분류</th><th>지정 품목</th><th style="width:80px">현재 잔여</th><th style="width:70px">해제</th></tr></thead>
+        <tbody id="bundlePickBody"></tbody>
+      </table>
+    </div>
+    <div style="font-size:11px;color:var(--gray500);margin-top:7px">
+      아래에서 대분류를 골라 품목을 추가하세요. <b>서로 다른 대분류 4개</b>를 채워야 저장됩니다.
+    </div>
+    <div class="setting-row" style="margin-top:7px">
+      <select class="setting-input" id="bundleCatSel" style="max-width:170px" onchange="renderBundleItemSel()"></select>
+      <select class="setting-input" id="bundleItemSel" style="max-width:280px"></select>
+      <button class="save-btn" onclick="addBundlePick()">＋ 추가</button>
+    </div>
+    <div style="margin-top:10px">
+      <button class="save-btn" style="background:var(--purple)" onclick="saveBundle()">🎁 꾸러미 설정 저장</button>
+    </div>
+    <div class="msg-ok" id="msgBundle">✅ 저장되었습니다. 학생 화면에 즉시 반영됩니다.</div>
+  </div>
+
   <div class="settings-section">
     <h3>🙋 드리미 서비스 개시 설정</h3>
     <div style="font-size:11px;color:var(--gray500);line-height:1.7;margin-bottom:10px">
@@ -972,6 +1020,159 @@ function getBasis(){ return LS.get('basis','approve'); }
 // 학생 화면 노출 설정 (기본: 잔여량 숨김)
 function getDisplay(){ return LS.get('display',{showStock:false,showHeadcount:true,drimiOn:true,drimiMsg:''}); }
 function getDrimiMsg(){ return getDisplay().drimiMsg||'매점 현장에서 운영 학생이 신청한 4개 품목을 대신 담아 전달해 드립니다.'; }
+// ══════════════════════════════════════════════════════════════
+//  꾸러미 데이 — 관리자가 지정한 4품목을 학생에게 고정 배정
+//   { on, name, date, msg, picks:[{cat,item},...] }
+// ══════════════════════════════════════════════════════════════
+function getBundle(){ return LS.get('bundle',{on:false,name:'',date:'',msg:'',picks:[]}) || {on:false,name:'',date:'',msg:'',picks:[]}; }
+function setBundle(b){
+  LS.set('bundle',b);
+  if(!IS_DEMO) fetchFromGAS({action:'saveSettings',bundle:JSON.stringify(b)},function(){});
+}
+function renderBundle(){
+  const b=getBundle();
+  const el=id=>document.getElementById(id);
+  if(el('setBundleOn')) el('setBundleOn').checked=!!b.on;
+  if(el('setBundleName')) el('setBundleName').value=b.name||'';
+  if(el('setBundleDate')) el('setBundleDate').value=b.date||'';
+  if(el('setBundleMsg')) el('setBundleMsg').value=b.msg||'';
+  const badge=el('bundleStateBadge');
+  if(badge){
+    badge.innerHTML = b.on
+      ? '<span class="badge" style="background:#ede9fe;color:#5b21b6">🎁 운영 중 · '+(b.picks||[]).length+'/4 품목'+(b.date?' · '+esc(b.date):' · 전체 운영일')+'</span>'
+      : '<span class="badge badge-gray">미운영 · 학생이 직접 선택</span>';
+  }
+  // 대분류 선택 박스 (이미 담은 대분류는 제외)
+  const used=(b.picks||[]).map(p=>p.cat);
+  const csel=el('bundleCatSel');
+  if(csel){
+    csel.innerHTML=CATALOG.filter(g=>used.indexOf(g.c)===-1)
+      .map(g=>'<option value="'+esc(g.c)+'">'+g.icon+' '+esc(g.c)+'</option>').join('')
+      || '<option value="">— 4개 모두 지정됨 —</option>';
+    renderBundleItemSel();
+  }
+  // 지정 목록
+  const body=el('bundlePickBody');
+  if(!body) return;
+  const stock=getStockMap(), sold=soldMapFrom(salesData()), mso=getManualSoldout();
+  body.innerHTML=(b.picks||[]).length ? b.picks.map(function(p,i){
+    const k=itemKey(p.cat,p.item);
+    const rem=mso[k]?0:Math.max(0,(stock[k]||0)-(sold[k]||0));
+    return '<tr><td>'+(i+1)+'</td><td>'+catBadge(p.cat)+'</td><td>'+esc(p.item)+'</td>'
+      +'<td style="font-weight:700;color:'+(rem<=0?'var(--red)':'var(--green)')+'">'+(rem<=0?'품절/중지':nf(rem))+'</td>'
+      +'<td><button class="filter-btn" style="background:var(--red);padding:3px 9px" onclick="removeBundlePick('+i+')">해제</button></td></tr>';
+  }).join('') : '<tr><td colspan="5" class="empty-note">지정된 품목이 없습니다. 아래에서 4개를 추가하세요.</td></tr>';
+}
+function renderBundleItemSel(){
+  const cat=document.getElementById('bundleCatSel').value;
+  const g=CATALOG.find(x=>x.c===cat);
+  const sel=document.getElementById('bundleItemSel');
+  if(!sel) return;
+  const stock=getStockMap(), sold=soldMapFrom(salesData()), mso=getManualSoldout();
+  sel.innerHTML = g ? g.items.map(function(it){
+    const k=itemKey(g.c,it.n);
+    const rem=mso[k]?0:Math.max(0,(stock[k]||0)-(sold[k]||0));
+    return '<option value="'+esc(it.n)+'">'+esc(it.n)+'  (잔여 '+rem+')</option>';
+  }).join('') : '';
+}
+function addBundlePick(){
+  const b=getBundle();
+  b.picks=b.picks||[];
+  if(b.picks.length>=PICK_REQUIRED){ alert('꾸러미는 4개까지만 지정할 수 있습니다.'); return; }
+  const cat=document.getElementById('bundleCatSel').value;
+  const item=document.getElementById('bundleItemSel').value;
+  if(!cat||!item){ alert('대분류와 품목을 선택해주세요.'); return; }
+  if(b.picks.some(p=>p.cat===cat)){ alert('같은 대분류는 중복 지정할 수 없습니다.'); return; }
+  b.picks.push({cat:cat,item:item});
+  LS.set('bundle',b);
+  renderBundle();
+}
+function removeBundlePick(i){
+  const b=getBundle();
+  b.picks.splice(i,1);
+  LS.set('bundle',b);
+  renderBundle();
+}
+function clearBundle(){
+  const b=getBundle(); b.picks=[];
+  LS.set('bundle',b); renderBundle();
+}
+// 재고가 많이 남은(비인기) 품목으로 자동 구성
+function autoPickBundle(){
+  const stock=getStockMap(), sold=soldMapFrom(salesData()), mso=getManualSoldout();
+  const b=getBundle();
+  const picks=[];
+  CATALOG.forEach(function(g){
+    let best=null,bestRem=-1;
+    g.items.forEach(function(it){
+      const k=itemKey(g.c,it.n);
+      if(mso[k]) return;
+      const rem=Math.max(0,(stock[k]||0)-(sold[k]||0));
+      if(rem>bestRem){ bestRem=rem; best=it.n; }
+    });
+    if(best&&bestRem>0) picks.push({cat:g.c,item:best,rem:bestRem});
+  });
+  // 잔여가 많은 대분류 4개 선택
+  picks.sort((x,y)=>y.rem-x.rem);
+  b.picks=picks.slice(0,PICK_REQUIRED).map(p=>({cat:p.cat,item:p.item}));
+  LS.set('bundle',b);
+  renderBundle();
+  alert('🔮 재고가 가장 많이 남은 대분류 4개에서 각각 최다 잔여 품목을 골랐습니다.\n\n'
+    + b.picks.map((p,i)=>(i+1)+'. '+p.cat+' · '+p.item).join('\n')
+    + '\n\n필요하면 개별 해제 후 다시 지정하고 「꾸러미 설정 저장」을 눌러주세요.');
+}
+function saveBundle(){
+  const b=getBundle();
+  b.on=document.getElementById('setBundleOn').checked;
+  b.name=document.getElementById('setBundleName').value||'';
+  b.date=document.getElementById('setBundleDate').value||'';
+  b.msg=document.getElementById('setBundleMsg').value||'';
+  if(b.on && (b.picks||[]).length!==PICK_REQUIRED){
+    alert('⚠️ 꾸러미 품목을 '+PICK_REQUIRED+'개 모두 지정해야 운영할 수 있습니다.\n현재 '+(b.picks||[]).length+'개 지정됨');
+    document.getElementById('setBundleOn').checked=false;
+    b.on=false;
+  }
+  // 품절/중지 품목이 포함되면 경고
+  if(b.on){
+    const stock=getStockMap(), sold=soldMapFrom(salesData()), mso=getManualSoldout();
+    const bad=b.picks.filter(function(p){
+      const k=itemKey(p.cat,p.item);
+      return mso[k] || Math.max(0,(stock[k]||0)-(sold[k]||0))<=0;
+    });
+    if(bad.length && !confirm('⚠️ 아래 품목은 품절이거나 판매중지 상태입니다.\n\n'
+        + bad.map(p=>'· '+p.item).join('\n')
+        + '\n\n이대로 운영하면 학생이 신청할 수 없습니다. 계속할까요?')){
+      document.getElementById('setBundleOn').checked=false;
+      b.on=false;
+    }
+  }
+  setBundle(b);
+  showMsg('msgBundle');
+  renderBundle(); renderLive();
+}
+
+// ── 수동 판매중지 (재고와 무관하게 관리자가 품목을 잠금) ──
+//    { '대분류|품명': true } 형태. true면 학생 화면에서 선택 불가.
+function getManualSoldout(){ return LS.get('manual_soldout',{}) || {}; }
+function setManualSoldout(m){
+  LS.set('manual_soldout',m);
+  if(!IS_DEMO) fetchFromGAS({action:'saveSettings',manualSoldout:JSON.stringify(m)},function(){});
+}
+function toggleManualSoldout(key,on){
+  const m=getManualSoldout();
+  if(on) m[key]=true; else delete m[key];
+  setManualSoldout(m);
+  renderStockTable(); renderLive();
+}
+function clearAllManualSoldout(){
+  const m=getManualSoldout();
+  const n=Object.keys(m).length;
+  if(!n){ alert('수동 판매중지된 품목이 없습니다.'); return; }
+  if(!confirm('판매중지 '+n+'개 품목을 모두 해제할까요?\n학생 화면에서 다시 선택 가능해집니다.')) return;
+  setManualSoldout({});
+  renderStockTable(); renderLive();
+}
+
 function getStockMap(){
   const ov=LS.get('stock_override',{})||{};
   const map={};
@@ -1119,6 +1320,7 @@ function loadAll(){
       if(d.display) LS.set('display',d.display);
       if(d.fixedDays) LS.set('fixed_days',d.fixedDays);
       if(d.order) LS.set('order',d.order);
+      if(d.bundle) LS.set('bundle',d.bundle);
       LS.set('account',{bank:d.bank||'카카오뱅크',no:d.bankNo||'3333-13-8457612',owner:d.bankOwner||'최 광 균',amt:d.bankAmt||'1,000원'});
       if(d.soldoutManual!==undefined) LS.set('soldout',{manual:d.soldoutManual==='true'||d.soldoutManual===true,msg:d.soldoutMsg||'금일 천원매점 판매가 종료되었습니다. 감사합니다.'});
     } else if(err==='network') netErr=true;
@@ -1501,7 +1703,7 @@ function stockRows(){
     g.items.forEach(function(it){
       const k=itemKey(g.c,it.n);
       const inQty=STOCK[k]||0, sQty=sold[k]||0;
-      rows.push({no:++no,cat:g.c,maker:it.m,name:it.n,inQty:inQty,sold:sQty,remain:Math.max(0,inQty-sQty),pct:inQty>0?Math.round(sQty/inQty*100):0});
+      rows.push({no:++no,key:k,cat:g.c,maker:it.m,name:it.n,inQty:inQty,sold:sQty,remain:Math.max(0,inQty-sQty),pct:inQty>0?Math.round(sQty/inQty*100):0});
     });
   });
   return rows;
@@ -1556,22 +1758,38 @@ function renderStockTable(){
   const q=(document.getElementById('stockSearch').value||'').trim().toLowerCase();
   let rows=stockRows();
   if(q) rows=rows.filter(r=>(r.name+r.maker+r.cat).toLowerCase().indexOf(q)!==-1);
+  const mso=getManualSoldout();
   document.getElementById('stockBody').innerHTML = rows.length? rows.map(function(r){
-    const color=r.remain===0?'var(--red)':r.pct>=80?'var(--orange)':'var(--green)';
-    return '<tr>'
+    const off=!!mso[r.key];
+    const color=off?'var(--gray500)':r.remain===0?'var(--red)':r.pct>=80?'var(--orange)':'var(--green)';
+    return '<tr'+(off?' style="background:#fef2f2"':'')+'>'
       +'<td>'+r.no+'</td>'
       +'<td>'+catBadge(r.cat)+'</td>'
       +'<td>'+esc(r.maker)+'</td>'
       +'<td>'+esc(r.name)+'</td>'
       +'<td><b>'+nf(r.inQty)+'</b></td>'
       +'<td style="color:var(--orange);font-weight:700">'+nf(r.sold)+'</td>'
-      +'<td style="color:'+color+';font-weight:800">'+(r.remain===0?'품절':nf(r.remain))+'</td>'
+      +'<td style="color:'+color+';font-weight:800">'+(off?'판매중지':(r.remain===0?'품절':nf(r.remain)))+'</td>'
       +'<td><div style="display:flex;align-items:center;gap:6px"><div class="progress-bar-sm" style="flex:1"><div class="progress-fill-sm" style="width:'+r.pct+'%;background:'+color+'"></div></div><span style="font-size:10px;font-weight:700">'+r.pct+'%</span></div></td>'
+      +'<td style="text-align:center">'
+        +'<label class="toggle-switch" style="width:40px;height:22px" title="켜면 학생 화면에서 선택할 수 없습니다">'
+        +'<input type="checkbox" class="soldout-cb" data-k="'+esc(r.key)+'"'+(off?' checked':'')+'>'
+        +'<span class="toggle-slider"></span></label>'
+      +'</td>'
       +'</tr>';
-  }).join('') : '<tr><td colspan="8" class="empty-note">검색 결과가 없습니다.</td></tr>';
+  }).join('') : '<tr><td colspan="9" class="empty-note">검색 결과가 없습니다.</td></tr>';
+
+  // 토글 이벤트 연결
+  document.querySelectorAll('#stockBody .soldout-cb').forEach(function(cb){
+    cb.addEventListener('change',function(){ toggleManualSoldout(this.dataset.k,this.checked); });
+  });
 
   const tin=rows.reduce((s,r)=>s+r.inQty,0), ts=rows.reduce((s,r)=>s+r.sold,0);
-  document.getElementById('stockFoot').innerHTML='<tr><td colspan="4">합계</td><td>'+nf(tin)+'</td><td>'+nf(ts)+'</td><td>'+nf(tin-ts)+'</td><td>'+(tin?Math.round(ts/tin*100):0)+'%</td></tr>';
+  const offCnt=Object.keys(getManualSoldout()).filter(k=>getManualSoldout()[k]).length;
+  document.getElementById('stockFoot').innerHTML='<tr><td colspan="4">합계</td><td>'+nf(tin)+'</td><td>'+nf(ts)+'</td><td>'+nf(tin-ts)+'</td><td>'+(tin?Math.round(ts/tin*100):0)+'%</td><td style="text-align:center">'+(offCnt?offCnt+'개 중지':'—')+'</td></tr>';
+  const badge=document.getElementById('soldoutCountBadge');
+  if(badge) badge.innerHTML = offCnt
+    ? '<span class="badge badge-red">🚫 수동 판매중지 '+offCnt+'개</span>' : '';
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -2733,6 +2951,7 @@ function initSettings(){
   document.getElementById('setBasis').value=getBasis();
 
   renderFixedDays();
+  renderBundle();
 
   const disp=getDisplay();
   document.getElementById('setShowStock').checked=!!disp.showStock;
