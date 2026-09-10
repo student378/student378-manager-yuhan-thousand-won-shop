@@ -315,6 +315,33 @@ tr.waiting-row td{opacity:.62}
 
 <!-- ② 재고현황 -->
 <div class="tab-content" id="tab-stock">
+  <div class="table-panel" style="border-left:4px solid var(--blue)">
+    <div class="table-panel-header">
+      <h3>📤 판매실적 업로드 (엑셀)</h3>
+      <span id="salesLogBadge" style="font-size:11px;margin-left:auto"></span>
+    </div>
+    <div style="padding:13px">
+      <div style="font-size:11px;color:var(--gray500);line-height:1.7;margin-bottom:10px">
+        POS 판매현황 엑셀(<b>일자-No. · 품목명(규격) · 수량</b>)을 올리면 판매·재고·리포트에 함께 반영됩니다.<br>
+        학생 신청 데이터와 <b>별개로 합산</b>되며, 같은 날짜를 다시 올리면 그 날짜 실적만 교체됩니다.
+      </div>
+      <div class="upload-zone" onclick="document.getElementById('salesFile').click()">
+        <div style="font-size:26px">🧾</div>
+        <p><b>판매현황 엑셀을 여기에 올리세요</b><br>(품목명은 시스템 원장과 자동으로 대조됩니다)</p>
+      </div>
+      <input type="file" id="salesFile" accept=".xlsx,.xls" style="display:none" onchange="uploadSalesFile(this)">
+      <div class="table-wrap" style="margin-top:11px;max-height:240px;overflow-y:auto">
+        <table>
+          <thead><tr><th>업로드 날짜</th><th style="width:80px">품목 수</th><th style="width:90px">판매 수량</th><th style="width:130px">등록 시각</th><th style="width:70px">삭제</th></tr></thead>
+          <tbody id="salesLogBody"></tbody>
+        </table>
+      </div>
+      <div style="margin-top:9px;display:flex;gap:7px;flex-wrap:wrap">
+        <button class="save-btn" style="background:var(--red)" onclick="clearSalesLog()">🗑️ 판매실적 전체 삭제</button>
+      </div>
+      <div class="msg-ok" id="msgSales">✅ 반영되었습니다.</div>
+    </div>
+  </div>
   <div id="stockLegend"></div>
   <div class="kpi-grid" id="stockKpi"></div>
   <div id="stockAlert"></div>
@@ -327,14 +354,16 @@ tr.waiting-row td{opacity:.62}
       <h3>📋 품목별 재고 원장 (입고 · 판매 · 잔여)</h3>
       <input class="search-input" id="stockSearch" placeholder="품목/제조사 검색" oninput="renderStockTable()">
       <span id="soldoutCountBadge" style="font-size:11px"></span>
-      <button class="filter-btn ghost" style="margin-left:auto" onclick="clearAllManualSoldout()">↩️ 품절 일괄 해제</button>
+      <button class="filter-btn" style="margin-left:auto;background:var(--purple)" onclick="refillAllShelf()">🛒 진열 일괄 보충</button>
+      <button class="filter-btn ghost" onclick="resetShelfByBox()">📦 박스 단위로 초기화</button>
+      <button class="filter-btn ghost" onclick="clearAllManualSoldout()">↩️ 품절 일괄 해제</button>
       <button class="filter-btn" onclick="exportStockExcel()">📥 재고 엑셀</button>
     </div>
     <div class="table-wrap">
       <table>
         <thead><tr>
           <th style="width:36px">연번</th><th>대분류</th><th>제조사</th><th>품명(소분류)</th>
-          <th class="c" style="width:64px">입고</th><th style="width:64px">판매</th><th style="width:64px">잔여</th><th style="width:118px">소진율</th><th style="width:96px">판매중지</th>
+          <th class="c" style="width:74px">총보유</th><th style="width:74px">판매</th><th style="width:88px">🛒 진열대</th><th style="width:82px">📦 창고</th><th style="width:76px">잔여</th><th style="width:100px">소진율</th><th style="width:88px">판매중지</th>
         </tr></thead>
         <tbody id="stockBody"></tbody>
         <tfoot id="stockFoot"></tfoot>
@@ -603,13 +632,29 @@ tr.waiting-row td{opacity:.62}
   </div>
 
   <div class="table-panel">
-    <div class="table-panel-header"><h3>🔮 소요 예측 (최근 판매 속도 기준)</h3>
-      <span style="font-size:11px;color:var(--gray500);margin-left:auto">승인 기준 판매량으로 계산</span>
+    <div class="table-panel-header"><h3>🔮 소요 예측 · 재발주 계획</h3>
+      <input class="search-input" id="fcSearch" placeholder="품목/제조사 검색" oninput="renderOrderForecast()">
+      <select class="setting-input" id="fcFilter" style="max-width:150px;padding:5px 9px;font-size:11px" onchange="renderOrderForecast()">
+        <option value="all">전체 보기</option>
+        <option value="urgent">🔴 즉시 발주만</option>
+        <option value="warn">🟠 발주 검토만</option>
+        <option value="ok">🟢 여유만</option>
+        <option value="dead">⚪ 판매 없음(비인기)</option>
+      </select>
+      <span style="font-size:11px;color:var(--gray500);margin-left:auto" id="fcBasisNote">승인 기준 판매량으로 계산</span>
     </div>
+    <div id="fcSummary"></div>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>구분</th><th>제품명</th><th>현재 재고</th><th>1회 평균 판매</th><th>예상 소진</th><th>재발주 권고</th></tr></thead>
+        <thead><tr>
+          <th style="width:34px">연번</th><th>대분류</th><th>제조사</th><th>품명</th>
+          <th style="width:64px">입고</th><th style="width:64px">판매</th><th style="width:66px">현재잔여</th>
+          <th style="width:110px">소진율</th>
+          <th style="width:78px">1회 평균</th><th style="width:86px">예상 소진</th>
+          <th style="width:96px">소진 예정일</th><th style="width:88px">권장 발주</th><th style="width:82px">판단</th>
+        </tr></thead>
         <tbody id="orderForecastBody"></tbody>
+        <tfoot id="orderForecastFoot"></tfoot>
       </table>
     </div>
   </div>
@@ -774,6 +819,26 @@ tr.waiting-row td{opacity:.62}
       <button class="save-btn" style="background:var(--purple)" onclick="saveBundle()">🎁 꾸러미 설정 저장</button>
     </div>
     <div class="msg-ok" id="msgBundle">✅ 저장되었습니다. 학생 화면에 즉시 반영됩니다.</div>
+  </div>
+
+  <div class="settings-section" style="border:2px solid var(--blue)">
+    <h3>🔒 간편 신청 모드 (학생 품목 선택 잠금)</h3>
+    <div style="font-size:11px;color:var(--gray500);line-height:1.7;margin-bottom:10px;background:#eff6ff;border-left:3px solid var(--blue);padding:8px 11px;border-radius:5px">
+      켜면 학생은 <b>기본정보만 입력하고 바로 신청</b>합니다. 품목 선택 화면이 사라져 대기 시간이 크게 줄어듭니다.<br>
+      수령 방법은 <b>직접 수령으로 고정</b>되며, 재고는 아래 「판매실적 업로드」로 관리합니다.<br>
+      📌 끄면 기존처럼 학생이 4품목을 직접 고르는 방식으로 즉시 돌아갑니다. <b>기존 신청 데이터는 그대로 유지됩니다.</b>
+    </div>
+    <div class="toggle-row">
+      <label class="toggle-switch"><input type="checkbox" id="setSimpleOn" onchange="saveSimple()"><span class="toggle-slider"></span></label>
+      <span class="toggle-label">간편 신청 모드 운영</span>
+      <span id="simpleStateBadge" style="margin-left:4px"></span>
+    </div>
+    <div class="setting-row" style="margin-top:8px">
+      <span class="setting-label">안내 문구</span>
+      <input class="setting-input" id="setSimpleMsg" placeholder="현장에서 물품을 직접 담아가는 방식으로 운영합니다.">
+      <button class="save-btn" onclick="saveSimple()">저장</button>
+    </div>
+    <div class="msg-ok" id="msgSimple">✅ 저장되었습니다. 학생 화면에 즉시 반영됩니다.</div>
   </div>
 
   <div class="settings-section">
@@ -1086,6 +1151,10 @@ function addBundlePick(){
   b.picks.push({cat:cat,item:item});
   LS.set('bundle',b);
   renderBundle();
+  const sp=getSimple();
+  if(document.getElementById('setSimpleOn')) document.getElementById('setSimpleOn').checked=!!sp.on;
+  if(document.getElementById('setSimpleMsg')) document.getElementById('setSimpleMsg').value=sp.msg||'';
+  renderSimpleBadge();
 }
 function removeBundlePick(i){
   const b=getBundle();
@@ -1149,6 +1218,129 @@ function saveBundle(){
   setBundle(b);
   showMsg('msgBundle');
   renderBundle(); renderLive();
+}
+
+// ══════════════════════════════════════════════════════════════
+//  간편 신청 모드 — 학생이 품목을 고르지 않고 기본정보만 입력
+//   { on, msg }   재고는 판매실적 업로드로 관리
+// ══════════════════════════════════════════════════════════════
+function getSimple(){ return LS.get('simple',{on:false,msg:''}) || {on:false,msg:''}; }
+function renderSimpleBadge(){
+  const b=document.getElementById('simpleStateBadge'); if(!b) return;
+  const on=getSimple().on;
+  b.innerHTML = on ? '<span class="badge badge-blue">운영 중 · 학생 선택 잠금</span>'
+                   : '<span class="badge badge-gray">미사용 · 학생이 직접 선택</span>';
+}
+function saveSimple(){
+  const d=getSimple();
+  d.on=document.getElementById('setSimpleOn').checked;
+  d.msg=document.getElementById('setSimpleMsg').value||'';
+  LS.set('simple',d);
+  if(!IS_DEMO) fetchFromGAS({action:'saveSettings',simple:JSON.stringify(d)},function(){});
+  showMsg('msgSimple'); renderSimpleBadge(); renderLive();
+}
+
+// ══════════════════════════════════════════════════════════════
+//  진열대 / 창고 재고 관리
+//   총 보유량(입고) = 진열대 잔여 + 창고 잔여 + 판매
+//   ▸ display_qty[key] = 창고에서 진열대로 꺼낸 '누적 반출량'
+//     진열 잔여 = 누적반출 − 판매      (판매는 진열대에서만 빠짐)
+//     창고 잔여 = 총보유 − 누적반출
+//     ⇒ 진열잔여 + 창고잔여 = 총보유 − 판매 = 총잔여   (항상 일치)
+//   ▸ 관리자는 '현재 진열 잔여'를 입력하고, 내부에서 누적으로 환산한다.
+// ══════════════════════════════════════════════════════════════
+function getDisplayQty(){ return LS.get('display_qty',{}) || {}; }
+function setDisplayQty(m){
+  LS.set('display_qty',m);
+  if(!IS_DEMO) fetchFromGAS({action:'saveSettings',displayQty:JSON.stringify(m)},function(){});
+}
+// 품목별 진열/창고 현황 계산
+function shelfOf(key, inQty, soldQty){
+  const dq=getDisplayQty();
+  const raw=dq[key];
+  // 미설정이면 전량 진열로 간주 (기존 운영과 동일하게 동작)
+  let out = (raw===undefined||raw===null||raw==='') ? inQty : Number(raw);
+  // 누적 반출량은 판매량 이상, 총보유 이하로 보정
+  out = Math.max(soldQty, Math.min(out, inQty));
+  const shelf = Math.max(0, out - soldQty);        // 진열대 잔여
+  const store = Math.max(0, inQty - out);          // 창고 잔여
+  return {out:out, placed:shelf, shelf:shelf, store:store};
+}
+// 수량을 '박스 + 낱개'로 환산해 보여준다 (입수량 기준)
+//  예) 입수 24, 189개 → '7박스 21개'
+function boxText(qty, ins){
+  const per=Number(ins||0);
+  if(!per || per<=0 || !qty) return '';
+  const b=Math.floor(qty/per), r=qty%per;
+  if(b<=0) return r+'개';
+  return b+'박스'+(r>0?' '+r+'개':'');
+}
+// 표 안에 들어갈 작은 회색 보조 표기
+function boxSub(qty, ins){
+  const t=boxText(qty,ins);
+  return t?'<div style="font-size:10px;color:var(--gray500);font-weight:500;margin-top:1px">'+t+'</div>':'';
+}
+
+// 박스 단위 기본 진열량 (1박스 = 입수량)
+function defaultShelf(it){ return Number(it.ins||0)||0; }
+
+// 진열 수량 직접 지정 (총 보유량을 넘을 수 없음)
+// 입력값은 '현재 진열 잔여' — 내부적으로 누적 반출량으로 환산해 저장
+function setShelfQty(key, shelfQty){
+  const row=stockRows().find(r=>r.key===key);
+  if(!row) return;
+  const maxShelf=row.remain;                       // 진열은 총잔여를 넘을 수 없다
+  let v=Math.max(0,Math.floor(Number(shelfQty)||0));
+  if(v>maxShelf){
+    alert('진열 가능 수량은 최대 '+nf(maxShelf)+'개입니다.\n(총보유 '+nf(row.inQty)+' − 판매 '+nf(row.sold)+')');
+    v=maxShelf;
+  }
+  const dq=getDisplayQty();
+  dq[key]=row.sold + v;                            // 누적 반출량 = 판매 + 진열잔여
+  setDisplayQty(dq);
+  renderStockTable(); renderLive();
+}
+// 박스 단위(입수량)로 진열량 초기화
+function resetShelfByBox(){
+  if(!confirm('모든 품목의 진열 수량을 박스 단위(1박스=입수량)로 다시 설정할까요?\n\n예) 입수 16개 품목 → 진열 16개\n총 보유량이 더 적으면 보유량만큼만 진열합니다.')) return;
+  const dq=getDisplayQty();
+  let n=0;
+  stockRows().forEach(function(r){
+    const box=defaultShelf({ins:r.ins});
+    const want=box>0?box:r.remain;
+    const v=Math.min(want, r.remain);              // 진열 잔여 목표
+    dq[r.key]=r.sold + v;                          // 누적 반출량으로 저장
+    n++;
+  });
+  setDisplayQty(dq);
+  renderStockTable(); renderLive();
+  alert('✅ '+n+'개 품목의 진열 수량을 박스 단위로 설정했습니다.\n필요한 품목만 표에서 직접 수정하세요.');
+}
+// 진열대가 빈 품목을 창고에서 한 박스씩 보충
+function refillAllShelf(){
+  const rows=stockRows().filter(r=>r.shelf<=0 && r.store>0);
+  if(!rows.length){ alert('보충이 필요한 품목이 없습니다.\n(진열대가 비었고 창고에 재고가 있는 품목이 대상입니다)'); return; }
+  const plan=rows.map(function(r){
+    const box=defaultShelf({ins:r.ins});
+    const add=Math.min(box>0?box:r.store, r.store);
+    return {key:r.key, name:r.name, add:add};
+  }).filter(p=>p.add>0);
+  if(!plan.length){ alert('창고에 보충할 수량이 없습니다.'); return; }
+  const total=plan.reduce((s,p)=>s+p.add,0);
+  if(!confirm('🛒 진열대가 빈 '+plan.length+'개 품목을 창고에서 보충합니다.\n\n'
+    + plan.slice(0,8).map(p=>'· '+p.name+' +'+p.add).join('\n')
+    + (plan.length>8?'\n… 외 '+(plan.length-8)+'개':'')
+    + '\n\n총 '+nf(total)+'개. 계속할까요?')) return;
+  const dq=getDisplayQty();
+  const cur=stockRows();
+  plan.forEach(function(p){
+    const row=cur.find(x=>x.key===p.key);
+    if(!row) return;
+    dq[p.key]=row.out + p.add;                     // 누적 반출량에 더한다
+  });
+  setDisplayQty(dq);
+  renderStockTable(); renderLive();
+  alert('✅ '+plan.length+'개 품목 · 총 '+nf(total)+'개를 진열대로 옮겼습니다.');
 }
 
 // ── 수동 판매중지 (재고와 무관하게 관리자가 품목을 잠금) ──
@@ -1222,9 +1414,36 @@ function pushApprovalToServer(){
 function salesData(){
   return getBasis()==='approve' ? allData.filter(isApproved) : allData.slice();
 }
-function soldMapFrom(records){
+// ══════════════════════════════════════════════════════════════
+//  판매실적(엑셀 업로드) — 학생 신청과 별개로 합산되는 판매량
+//   { '2026-09-03': { '대분류|품명': 수량, ... }, ... }
+// ══════════════════════════════════════════════════════════════
+function getSalesLog(){ return LS.get('sales_log',{}) || {}; }
+function setSalesLog(m){
+  LS.set('sales_log',m);
+  if(!IS_DEMO) fetchFromGAS({action:'saveSettings',salesLog:JSON.stringify(m)},function(){});
+}
+// 전체 기간(또는 지정 날짜들)의 업로드 판매량 합계
+function salesLogMap(dateFilter){
+  const log=getSalesLog(); const m={};
+  for(const d in log){
+    if(dateFilter && !dateFilter(d)) continue;
+    const day=log[d]||{};
+    for(const k in day) m[k]=(m[k]||0)+Number(day[k]||0);
+  }
+  return m;
+}
+function salesLogDates(){ return Object.keys(getSalesLog()).filter(d=>/^\d{4}-\d{2}-\d{2}$/.test(d)).sort(); }
+
+function soldMapFrom(records, opt){
   const m={};
   records.forEach(r=>(r.picks||[]).forEach(p=>{ const k=itemKey(p.cat,p.item); m[k]=(m[k]||0)+1; }));
+  // ★ 업로드한 판매실적을 함께 합산 (재고·리포트·품목분석 전 탭에 동일 적용)
+  //   opt.skipLog=true 이면 신청분만 계산 (내부 용도)
+  if(!(opt&&opt.skipLog)){
+    const lg=salesLogMap(opt&&opt.dateFilter);
+    for(const k in lg) m[k]=(m[k]||0)+lg[k];
+  }
   return m;
 }
 function totalOf(map){ let s=0; for(const k in map) s+=map[k]; return s; }
@@ -1301,7 +1520,7 @@ function loadAll(){
   renderAll();
 
   // ★ 3개 요청을 병렬로 보내고, 모두 끝나면 한 번 더 그린다
-  let pending=3, anyOk=false, netErr=false, srvMsg='';
+  let pending=4, anyOk=false, netErr=false, srvMsg='';
   function step(){
     if(--pending>0) return;
     STOCK=getStockMap();
@@ -1321,10 +1540,25 @@ function loadAll(){
       if(d.fixedDays) LS.set('fixed_days',d.fixedDays);
       if(d.order) LS.set('order',d.order);
       if(d.bundle) LS.set('bundle',d.bundle);
+      if(d.simple) LS.set('simple',d.simple);
+      if(d.salesLog) LS.set('sales_log',d.salesLog);
+      // ★ 물품원장(입고 수량)을 서버 값으로 통일 — 어느 PC에서 열어도 같은 재고
+      if(d.stock) LS.set('stock_override',d.stock);
+      if(d.manualSoldout) LS.set('manual_soldout',d.manualSoldout);
       LS.set('account',{bank:d.bank||'카카오뱅크',no:d.bankNo||'3333-13-8457612',owner:d.bankOwner||'최 광 균',amt:d.bankAmt||'1,000원'});
       if(d.soldoutManual!==undefined) LS.set('soldout',{manual:d.soldoutManual==='true'||d.soldoutManual===true,msg:d.soldoutMsg||'금일 천원매점 판매가 종료되었습니다. 감사합니다.'});
     } else if(err==='network') netErr=true;
     else if(res&&res.status==='error') srvMsg=res.message||'';
+    step();
+  });
+
+  // ★ 승인 기록을 서버에서 받아 어느 화면에서 열어도 동일하게 보이도록
+  fetchFromGAS({action:'getApproved'},function(res,err){
+    if(!err&&res&&res.status==='ok'&&Array.isArray(res.data)){
+      anyOk=true;
+      approvedSet=new Set(res.data);
+      LS.set('approved',res.data);
+    } else if(err==='network') netErr=true;
     step();
   });
 
@@ -1703,7 +1937,10 @@ function stockRows(){
     g.items.forEach(function(it){
       const k=itemKey(g.c,it.n);
       const inQty=STOCK[k]||0, sQty=sold[k]||0;
-      rows.push({no:++no,key:k,cat:g.c,maker:it.m,name:it.n,inQty:inQty,sold:sQty,remain:Math.max(0,inQty-sQty),pct:inQty>0?Math.round(sQty/inQty*100):0});
+      const sh=shelfOf(k,inQty,sQty);
+      rows.push({no:++no,key:k,cat:g.c,maker:it.m,name:it.n,ins:it.ins,inQty:inQty,sold:sQty,
+        remain:Math.max(0,inQty-sQty),pct:inQty>0?Math.round(sQty/inQty*100):0,
+        placed:sh.placed, shelf:sh.shelf, store:sh.store});
     });
   });
   return rows;
@@ -1720,6 +1957,7 @@ function catRollup(){
 }
 
 function renderStockTab(){
+  renderSalesLog();
   document.getElementById('stockLegend').innerHTML=legendHtml();
   const rows=stockRows();
   const totIn=rows.reduce((s,r)=>s+r.inQty,0);
@@ -1727,20 +1965,36 @@ function renderStockTab(){
   const totRemain=totIn-totSold;
   const outCnt=rows.filter(r=>r.remain===0).length;
   const lowCnt=rows.filter(r=>r.remain>0&&r.pct>=80).length;
+  const tShelf=rows.reduce((s,r)=>s+r.shelf,0);
+  const tStore=rows.reduce((s,r)=>s+r.store,0);
+  const needRefill=rows.filter(r=>r.shelf<=0 && r.store>0).length;
   document.getElementById('stockKpi').innerHTML=
-     kpi('📦',nf(totIn),'총 입고(개)',true)
+     kpi('📦',nf(totIn),'총 보유량(개)',true)
+    +kpi('🛒',nf(tShelf),'진열대 잔여')
+    +kpi('🏬',nf(tStore),'창고 보관')
+    +kpi('🔄',needRefill,'보충 필요 품목')
     +kpi('🛒',nf(totSold),'누적 판매(개)')
     +kpi('✅',nf(totRemain),'잔여(개)')
     +kpi('🔥',(totIn?Math.round(totSold/totIn*100):0)+'%','전체 소진율')
     +kpi('⚠️',lowCnt,'소진 임박(80%↑)')
     +kpi('🚫',outCnt,'품절 품목');
 
+  // 진열대는 비었는데 창고에 재고가 남은 품목 안내
+  const refillRows=rows.filter(r=>r.shelf<=0 && r.store>0);
+  const refillBar = refillRows.length
+    ? '<div class="table-panel" style="border-left:4px solid var(--purple)"><div class="table-panel-header">'
+      +'<h3>🛒 진열 보충 필요 ('+refillRows.length+'개 품목)</h3>'
+      +'<button class="filter-btn" style="margin-left:auto;background:var(--purple)" onclick="refillAllShelf()">일괄 보충</button></div>'
+      +'<div style="padding:11px 13px;line-height:2.1">'
+      +refillRows.map(r=>'<span class="badge" style="background:#ede9fe;color:#5b21b6;margin-right:4px">'+esc(r.name)+' · 창고 '+nf(r.store)+'</span>').join('')
+      +'</div></div>'
+    : '';
   const risky=rows.filter(r=>r.remain===0||r.pct>=80);
-  document.getElementById('stockAlert').innerHTML = risky.length
+  document.getElementById('stockAlert').innerHTML = refillBar + (risky.length
     ? '<div class="table-panel" style="border-left:4px solid var(--red)"><div class="table-panel-header"><h3>⚠️ 발주·보충 검토 대상 ('+risky.length+'개 품목)</h3></div><div style="padding:11px 13px;font-size:12px;line-height:2">'
       + risky.map(r=>'<span class="pick-tag" style="background:'+(r.remain===0?'#fee2e2':'#fef3c7')+';border-color:'+(r.remain===0?'#fca5a5':'#fcd34d')+';color:'+(r.remain===0?'#991b1b':'#92400e')+'">'+esc(r.name)+' · '+(r.remain===0?'품절':'잔여 '+r.remain)+'</span>').join('')
       + '</div></div>'
-    : '';
+    : '');
 
   const roll=catRollup();
   safeChart('chartCatRemain',{type:'bar',data:{labels:roll.map(r=>r.cat),
@@ -1767,9 +2021,15 @@ function renderStockTable(){
       +'<td>'+catBadge(r.cat)+'</td>'
       +'<td>'+esc(r.maker)+'</td>'
       +'<td>'+esc(r.name)+'</td>'
-      +'<td><b>'+nf(r.inQty)+'</b></td>'
-      +'<td style="color:var(--orange);font-weight:700">'+nf(r.sold)+'</td>'
-      +'<td style="color:'+color+';font-weight:800">'+(off?'판매중지':(r.remain===0?'품절':nf(r.remain)))+'</td>'
+      +'<td><b>'+nf(r.inQty)+'</b>'+boxSub(r.inQty,r.ins)+'</td>'
+      +'<td style="color:var(--orange);font-weight:700">'+nf(r.sold)+boxSub(r.sold,r.ins)+'</td>'
+      +'<td><input type="number" min="0" max="'+r.remain+'" class="shelf-in" data-k="'+esc(r.key)+'" value="'+r.shelf+'"'
+        +' title="지금 진열대에 남아 있는 수량 (최대 '+r.remain+')"'
+        +' style="width:62px;padding:4px 6px;border:1.5px solid '+(r.shelf<=0?'var(--red)':'var(--purple)')+';border-radius:5px;font-size:11.5px;text-align:right;font-family:inherit;font-weight:700;color:'+(r.shelf<=0?'var(--red)':'var(--purple)')+'">'
+        +boxSub(r.shelf,r.ins)+'</td>'
+      +'<td style="font-weight:700;color:'+(r.store<=0?'var(--gray500)':'var(--blue)')+'">'+nf(r.store)+boxSub(r.store,r.ins)+'</td>'
+      +'<td style="color:'+color+';font-weight:800">'+(off?'판매중지':(r.remain===0?'품절':nf(r.remain)))
+        +(off||r.remain===0?'':boxSub(r.remain,r.ins))+'</td>'
       +'<td><div style="display:flex;align-items:center;gap:6px"><div class="progress-bar-sm" style="flex:1"><div class="progress-fill-sm" style="width:'+r.pct+'%;background:'+color+'"></div></div><span style="font-size:10px;font-weight:700">'+r.pct+'%</span></div></td>'
       +'<td style="text-align:center">'
         +'<label class="toggle-switch" style="width:40px;height:22px" title="켜면 학생 화면에서 선택할 수 없습니다">'
@@ -1777,16 +2037,27 @@ function renderStockTable(){
         +'<span class="toggle-slider"></span></label>'
       +'</td>'
       +'</tr>';
-  }).join('') : '<tr><td colspan="9" class="empty-note">검색 결과가 없습니다.</td></tr>';
+  }).join('') : '<tr><td colspan="11" class="empty-note">검색 결과가 없습니다.</td></tr>';
 
   // 토글 이벤트 연결
   document.querySelectorAll('#stockBody .soldout-cb').forEach(function(cb){
     cb.addEventListener('change',function(){ toggleManualSoldout(this.dataset.k,this.checked); });
   });
+  document.querySelectorAll('#stockBody .shelf-in').forEach(function(inp){
+    inp.addEventListener('change',function(){ setShelfQty(this.dataset.k, Number(this.value||0)); });
+  });
 
   const tin=rows.reduce((s,r)=>s+r.inQty,0), ts=rows.reduce((s,r)=>s+r.sold,0);
   const offCnt=Object.keys(getManualSoldout()).filter(k=>getManualSoldout()[k]).length;
-  document.getElementById('stockFoot').innerHTML='<tr><td colspan="4">합계</td><td>'+nf(tin)+'</td><td>'+nf(ts)+'</td><td>'+nf(tin-ts)+'</td><td>'+(tin?Math.round(ts/tin*100):0)+'%</td><td style="text-align:center">'+(offCnt?offCnt+'개 중지':'—')+'</td></tr>';
+  const tShelf=rows.reduce((s,r)=>s+r.shelf,0), tStore=rows.reduce((s,r)=>s+r.store,0);
+  // 합계 박스 수 = 품목별 박스 수의 합 (입수량이 품목마다 달라 개수만으로는 환산 불가)
+  const boxSum=(f)=>rows.reduce((a,r)=>a+(r.ins>0?Math.floor(f(r)/r.ins):0),0);
+  const sub=(v)=>v>0?'<div style="font-size:10px;color:var(--gray500);font-weight:500">약 '+nf(v)+'박스</div>':'';
+  document.getElementById('stockFoot').innerHTML='<tr><td colspan="4">합계</td><td>'+nf(tin)+sub(boxSum(r=>r.inQty))+'</td><td>'+nf(ts)+sub(boxSum(r=>r.sold))+'</td>'
+    +'<td style="color:var(--purple)">'+nf(tShelf)+sub(boxSum(r=>r.shelf))+'</td>'
+    +'<td style="color:var(--blue)">'+nf(tStore)+sub(boxSum(r=>r.store))+'</td>'
+    +'<td>'+nf(tin-ts)+sub(boxSum(r=>r.remain))+'</td><td>'+(tin?Math.round(ts/tin*100):0)+'%</td>'
+    +'<td style="text-align:center">'+(offCnt?offCnt+'개 중지':'—')+'</td></tr>';
   const badge=document.getElementById('soldoutCountBadge');
   if(badge) badge.innerHTML = offCnt
     ? '<span class="badge badge-red">🚫 수동 판매중지 '+offCnt+'개</span>' : '';
@@ -1815,13 +2086,23 @@ function dailyStats(date){
       itemMap[k]=(itemMap[k]||0)+1;
     });
   });
+  // ★ 그날 업로드된 판매실적을 함께 반영
+  const logDay=(getSalesLog()[date])||{};
+  let logQty=0;
+  for(const k in logDay){
+    const q=Number(logDay[k]||0); if(q<=0) continue;
+    itemMap[k]=(itemMap[k]||0)+q;
+    const c=k.split('|')[0];
+    catMap[c]=(catMap[c]||0)+q;
+    logQty+=q;
+  }
   day.forEach(function(r){
     const h=String(r.applyTime||'').slice(0,2);
     if(h) hourMap[h+'시']=(hourMap[h+'시']||0)+1;
     deptMap[r.dept]=(deptMap[r.dept]||0)+1;
     gradeMap[r.grade]=(gradeMap[r.grade]||0)+1;
   });
-  return {date:date,day:day,counted:counted,catMap:catMap,itemMap:itemMap,hourMap:hourMap,deptMap:deptMap,gradeMap:gradeMap};
+  return {date:date,day:day,counted:counted,catMap:catMap,itemMap:itemMap,hourMap:hourMap,deptMap:deptMap,gradeMap:gradeMap,logQty:logQty};
 }
 
 function renderDaily(){
@@ -1833,7 +2114,7 @@ function renderDaily(){
   const qty=st.counted.length*PICK_REQUIRED;
   const transfer=st.day.filter(r=>r.payMethod==='계좌이체').length;
 
-  if(!st.day.length){
+  if(!st.day.length && !st.logQty){
     wrap.innerHTML='<div class="report-head"><h2>📊 '+esc(date)+' ('+DAY_NAMES[dt.getDay()]+') 일일 판매 리포트</h2><div class="rh-sub">유한대학교 · 경기도 대학생 천원매점</div></div>'
       +'<div class="table-panel"><div class="empty-note">해당 날짜의 신청·판매 내역이 없습니다.</div></div>';
     ['chartDailyCat','chartDailyHour'].forEach(destroyChart);
@@ -2778,27 +3059,339 @@ function autoFillNextOrder(){
 }
 
 function renderOrderForecast(){
-  const dates=[...new Set(salesData().map(r=>r.date))].length;
+  const body=document.getElementById('orderForecastBody');
+  const foot=document.getElementById('orderForecastFoot');
+  const sumEl=document.getElementById('fcSummary');
+  const COLS=13;
+
+  // 운영 횟수 = 학생 신청일 + 판매실적 업로드일 (중복 제거)
+  const dates=[...new Set(salesData().map(r=>r.date).concat(salesLogDates()))].sort();
+  const nDays=dates.length;
   const sold=soldMapFrom(salesData());
   const stock=getStockMap();
-  const body=document.getElementById('orderForecastBody');
-  if(!dates){ body.innerHTML='<tr><td colspan="6" class="empty-note">판매 데이터가 없어 예측할 수 없습니다.</td></tr>'; return; }
-  const rows=orderRows().map(function(r){
-    const avg=(sold[r.key]||0)/dates;
-    const left=stock[r.key]||0;
-    const days=avg>0?Math.floor(left/avg):null;
-    return Object.assign({},r,{avg:avg,left:left,days:days});
-  }).filter(r=>r.avg>0).sort((a,b)=>(a.days===null?9999:a.days)-(b.days===null?9999:b.days));
-  if(!rows.length){ body.innerHTML='<tr><td colspan="6" class="empty-note">판매 이력이 있는 품목이 없습니다.</td></tr>'; return; }
-  body.innerHTML=rows.map(function(r){
-    const urgent=r.days!==null&&r.days<=2;
-    const warn=r.days!==null&&r.days<=5;
-    return '<tr><td>'+catBadge(r.cat)+'</td><td>'+esc(r.name)+'</td>'
-      +'<td style="font-weight:700">'+nf(r.left)+'</td>'
-      +'<td>'+r.avg.toFixed(1)+'개</td>'
-      +'<td style="font-weight:800;color:'+(urgent?'var(--red)':warn?'var(--orange)':'var(--green)')+'">'+(r.days===null?'—':r.days+'회 운영분')+'</td>'
-      +'<td>'+(urgent?'<span class="badge badge-red">즉시 발주</span>':warn?'<span class="badge badge-amber">발주 검토</span>':'<span class="badge badge-green">여유</span>')+'</td></tr>';
+  const mso=getManualSoldout();
+
+  const note=document.getElementById('fcBasisNote');
+  if(note) note.textContent=(getBasis()==='approve'?'승인(수령 확인)':'신청')+' 기준 · 최근 '+nDays+'회 운영 평균';
+
+  if(!nDays){
+    sumEl.innerHTML='';
+    body.innerHTML='<tr><td colspan="'+COLS+'" class="empty-note">판매 데이터가 없어 예측할 수 없습니다.</td></tr>';
+    foot.innerHTML=''; return;
+  }
+
+  // 다음 운영일들을 구해 '소진 예정일'을 실제 날짜로 환산
+  function nextOperDates(n){
+    const out=[]; const d=new Date();
+    let guard=0;
+    while(out.length<n && guard++<400){
+      d.setDate(d.getDate()+1);
+      const s=fDate(d);
+      if(isOperDay(s)) out.push(s);
+    }
+    return out;
+  }
+  const upcoming=nextOperDates(40);
+
+  const all=orderRows().map(function(r){
+    const s=sold[r.key]||0;
+    const inQ=stock[r.key]||0;
+    const left=mso[r.key]?0:Math.max(0,inQ-s);     // ★ 잔여 = 입고 − 판매 (기존엔 입고를 그대로 씀)
+    const avg=s/nDays;                              // 1회 운영당 평균 판매
+    const runs=avg>0?Math.floor(left/avg):null;     // 몇 회 더 버티는가
+    const dueDate=(runs!==null&&runs<upcoming.length)?upcoming[runs]:'';
+    const pct=inQ>0?Math.round(s/inQ*100):0;
+    // 권장 발주량: 앞으로 4회 운영분 확보 (박스 단위 올림)
+    const target=Math.ceil(avg*4);
+    const need=Math.max(0,target-left);
+    const box=Number(r.ins||1)||1;
+    const order=need>0?Math.ceil(need/box)*box:0;
+    let level;
+    if(mso[r.key]) level='stop';
+    else if(avg<=0) level='dead';
+    else if(runs!==null&&runs<=1) level='urgent';
+    else if(runs!==null&&runs<=3) level='warn';
+    else level='ok';
+    return Object.assign({},r,{sold:s,inQ:inQ,left:left,avg:avg,runs:runs,dueDate:dueDate,pct:pct,order:order,level:level});
+  });
+
+  // 요약 카드
+  const cnt=l=>all.filter(x=>x.level===l).length;
+  const orderSum=all.filter(x=>x.level==='urgent'||x.level==='warn').reduce((s,x)=>s+x.order,0);
+  sumEl.innerHTML='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;padding:12px 13px 4px">'
+    +'<div class="kpi-card" style="padding:11px"><div class="kpi-val" style="font-size:20px;color:var(--red)">'+cnt('urgent')+'</div><div class="kpi-label">🔴 즉시 발주 (1회분 이하)</div></div>'
+    +'<div class="kpi-card" style="padding:11px"><div class="kpi-val" style="font-size:20px;color:var(--orange)">'+cnt('warn')+'</div><div class="kpi-label">🟠 발주 검토 (3회분 이하)</div></div>'
+    +'<div class="kpi-card" style="padding:11px"><div class="kpi-val" style="font-size:20px;color:var(--green)">'+cnt('ok')+'</div><div class="kpi-label">🟢 여유</div></div>'
+    +'<div class="kpi-card" style="padding:11px"><div class="kpi-val" style="font-size:20px;color:var(--gray500)">'+cnt('dead')+'</div><div class="kpi-label">⚪ 판매 없음 (꾸러미 후보)</div></div>'
+    +'<div class="kpi-card accent" style="padding:11px"><div class="kpi-val" style="font-size:20px">'+nf(orderSum)+'</div><div class="kpi-label">권장 발주 합계(개)</div></div>'
+    +'</div>';
+
+  // 필터
+  const q=(document.getElementById('fcSearch').value||'').trim().toLowerCase();
+  const fl=document.getElementById('fcFilter').value;
+  let rows=all.slice();
+  if(fl!=='all') rows=rows.filter(r=>r.level===fl);
+  if(q) rows=rows.filter(r=>(r.name+r.maker+r.cat).toLowerCase().indexOf(q)!==-1);
+  // 급한 순 → 잔여 적은 순
+  const rank={stop:0,urgent:1,warn:2,ok:3,dead:4};
+  rows.sort((a,b)=>(rank[a.level]-rank[b.level]) || ((a.runs===null?9999:a.runs)-(b.runs===null?9999:b.runs)));
+
+  if(!rows.length){
+    body.innerHTML='<tr><td colspan="'+COLS+'" class="empty-note">해당 조건의 품목이 없습니다.</td></tr>';
+    foot.innerHTML=''; return;
+  }
+
+  const badge={
+    stop:'<span class="badge badge-gray">판매중지</span>',
+    urgent:'<span class="badge badge-red">즉시 발주</span>',
+    warn:'<span class="badge badge-amber">발주 검토</span>',
+    ok:'<span class="badge badge-green">여유</span>',
+    dead:'<span class="badge badge-gray">판매 없음</span>'
+  };
+  body.innerHTML=rows.map(function(r,i){
+    const color=r.left===0?'var(--red)':r.pct>=80?'var(--orange)':'var(--green)';
+    const runTxt = r.level==='dead' ? '—'
+                 : r.runs===null ? '—'
+                 : (r.runs===0?'<b>이번 회차 소진</b>':r.runs+'회 남음');
+    const runColor = r.level==='urgent'?'var(--red)':r.level==='warn'?'var(--orange)':'var(--green)';
+    return '<tr'+(r.level==='urgent'?' style="background:#fef2f2"':(r.level==='dead'?' style="background:var(--gray50)"':''))+'>'
+      +'<td>'+(i+1)+'</td>'
+      +'<td>'+catBadge(r.cat)+'</td>'
+      +'<td style="font-size:11.5px;color:var(--gray500)">'+esc(r.maker)+'</td>'
+      +'<td>'+esc(r.name)+'</td>'
+      +'<td>'+nf(r.inQ)+'</td>'
+      +'<td style="color:var(--orange);font-weight:700">'+nf(r.sold)+'</td>'
+      +'<td style="color:'+color+';font-weight:800">'+(r.left===0?'품절':nf(r.left))+(r.left>0?boxSub(r.left,r.ins):'')+'</td>'
+      +'<td><div style="display:flex;align-items:center;gap:6px"><div class="progress-bar-sm" style="flex:1"><div class="progress-fill-sm" style="width:'+r.pct+'%;background:'+color+'"></div></div><span style="font-size:10px;font-weight:700">'+r.pct+'%</span></div></td>'
+      +'<td style="font-weight:700">'+(r.avg>0?r.avg.toFixed(1)+'개':'—')+'</td>'
+      +'<td style="font-weight:800;color:'+runColor+'">'+runTxt+'</td>'
+      +'<td style="font-size:11.5px">'+(r.dueDate?esc(r.dueDate):'—')+'</td>'
+      +'<td style="font-weight:800;color:'+(r.order>0?'var(--primary)':'var(--gray500)')+'">'+(r.order>0?nf(r.order)+'개':'—')+(r.order>0?boxSub(r.order,r.ins):'')+'</td>'
+      +'<td>'+badge[r.level]+'</td></tr>';
   }).join('');
+
+  const t=rows.reduce((a,r)=>({inQ:a.inQ+r.inQ,sold:a.sold+r.sold,left:a.left+r.left,order:a.order+r.order}),{inQ:0,sold:0,left:0,order:0});
+  foot.innerHTML='<tr><td colspan="4">합계 ('+rows.length+'개 품목)</td><td>'+nf(t.inQ)+'</td><td>'+nf(t.sold)+'</td><td>'+nf(t.left)+'</td>'
+    +'<td>'+(t.inQ?Math.round(t.sold/t.inQ*100):0)+'%</td><td colspan="3"></td><td>'+nf(t.order)+'개</td><td></td></tr>';
+}
+
+// ══════════════════════════════════════════════════════════════
+//  판매실적 엑셀 업로드
+//   형식: 1행 제목 / 2행 머리글(일자-No. · 품목명(규격) · 수량) / 3행부터 데이터
+// ══════════════════════════════════════════════════════════════
+// 자동으로 구분되지 않는 품목의 수동 대응표
+//  엑셀에 '큰컵/사발' 표기가 없어 봉지·컵라면을 이름만으로 가릴 수 없는 경우를 처리한다.
+//  좌변은 '정규화된 판매실적 품명', 우변은 시스템 원장 품목.
+const SALES_ALIAS = {
+  '삼양까르보불닭볶음면': '컵라면|까르보불닭볶음면 큰컵',
+  '까르보불닭볶음면':     '컵라면|까르보불닭볶음면 큰컵'
+};
+
+function normSalesName(x){
+  return String(x||'').replace(/\[[^\]]*\]/g,'').replace(/[\s()（）]/g,'').toLowerCase();
+}
+// 컵라면(큰컵/사발)은 규격이 크고 봉지라면은 작다 — 같은 이름일 때 규격으로 구분
+function specGram(x){
+  const m=String(x||'').match(/\[(\d+(?:\.\d+)?)\s*(g|ml|G|ML)\]/);
+  return m?Number(m[1]):null;
+}
+// 판매실적 품명 → 시스템 품목 매칭 (제조사 접두어·규격 표기 차이 흡수)
+//  usedSet: 이미 배정된 품목은 제외해 서로 다른 행이 같은 품목으로 몰리는 것을 막는다
+function matchSalesItem(raw, usedSet){
+  const q=normSalesName(raw);
+  if(!q) return null;
+  const used=usedSet||new Set();
+  const gram=specGram(raw);
+  let isCup=/큰컵|사발|용기/.test(String(raw));
+
+  // ① 수동 대응표 우선 (자동 판별이 불가능한 품목)
+  if(SALES_ALIAS[q]){
+    const p=SALES_ALIAS[q].split('|');
+    if(!used.has(SALES_ALIAS[q])) return {cat:p[0],name:p[1]};
+  }
+  // ② 같은 이름이 봉지·큰컵으로 나뉘는 라면류는 규격(g)으로 구분한다.
+  //    불닭볶음면 기준 — 봉지 140g / 큰컵 105g (큰컵이 오히려 가볍다)
+  //    130g 이상이면 봉지, 미만이면 큰컵으로 본다.
+  let cupByGram=null;
+  if(gram!==null){ cupByGram = gram<130; }
+
+  // 후보 수집 (이미 쓴 품목 제외)
+  const cand=[];
+  CATALOG.forEach(function(g){
+    g.items.forEach(function(it){
+      if(used.has(g.c+'|'+it.n)) return;
+      const sn=normSalesName(it.n);
+      if(q.indexOf(sn)!==-1 || sn.indexOf(q)!==-1) cand.push({cat:g.c,name:it.n,sn:sn});
+    });
+  });
+  if(cand.length===1) return cand[0];
+  if(cand.length>1){
+    // ① 고유 키워드는 양쪽에 있거나 양쪽에 없어야 한다
+    //    '까르보불닭' 행이 일반 '불닭볶음면'으로 배정되는 것을 막는다
+    const KEY=['까르보','툼바','치즈','짜파','튀김우동','새우','진라면','스팸','비비고','고메'];
+    let pool=cand.filter(function(c){
+      return KEY.every(function(kw){
+        const w=normSalesName(kw);
+        return (q.indexOf(w)!==-1) === (c.sn.indexOf(w)!==-1);
+      });
+    });
+    if(pool.length===1) return pool[0];
+    if(!pool.length) pool=cand;
+    // ② 큰컵/사발 표기가 있으면 컵라면 계열 우선
+    const cup=pool.filter(c=>/큰컵|사발/.test(c.name));
+    const bag=pool.filter(c=>!/큰컵|사발/.test(c.name));
+    if(isCup && cup.length) return cup[0];              // 이름에 큰컵/사발 명시
+    if(cupByGram===true  && cup.length) return cup[0];  // 규격상 큰컵
+    if(cupByGram===false && bag.length) return bag[0];  // 규격상 봉지
+    if(bag.length) return bag[0];
+    // ③ 그래도 애매하면 이름이 가장 긴(구체적인) 것
+    pool.sort((a,b)=>b.sn.length-a.sn.length);
+    return pool[0];
+  }
+
+  // 제조사(첫 단어)를 떼고 재시도
+  const parts=String(raw).replace(/\[[^\]]*\]/g,'').trim().split(/\s+/);
+  for(let cut=1; cut<parts.length; cut++){
+    const core=normSalesName(parts.slice(cut).join(''));
+    if(core.length<3) break;
+    const c2=[];
+    CATALOG.forEach(function(g){
+      g.items.forEach(function(it){
+        if(used.has(g.c+'|'+it.n)) return;
+        const sn=normSalesName(it.n);
+        if(sn.indexOf(core)!==-1 || core.indexOf(sn)!==-1) c2.push({cat:g.c,name:it.n,sn:sn});
+      });
+    });
+    if(c2.length){
+      const cup=c2.filter(c=>/큰컵|사발/.test(c.name));
+      const bag=c2.filter(c=>!/큰컵|사발/.test(c.name));
+      if(isCup && cup.length) return cup[0];
+      if(gram!==null && gram>=120 && cup.length) return cup[0];
+      if(gram!==null && gram<120 && bag.length) return bag[0];
+      c2.sort((a,b)=>b.sn.length-a.sn.length);
+      return c2[0];
+    }
+  }
+  return null;
+}
+
+function renderSalesLog(){
+  const log=getSalesLog();
+  const dates=salesLogDates();
+  const body=document.getElementById('salesLogBody');
+  const badge=document.getElementById('salesLogBadge');
+  if(badge){
+    const tot=Object.keys(log).reduce((s,d)=>s+Object.values(log[d]||{}).reduce((a,b)=>a+Number(b||0),0),0);
+    badge.innerHTML = dates.length
+      ? '<span class="badge badge-blue">업로드 '+dates.length+'일 · 판매 '+nf(tot)+'개</span>'
+      : '<span class="badge badge-gray">업로드된 실적 없음</span>';
+  }
+  if(!body) return;
+  if(!dates.length){
+    body.innerHTML='<tr><td colspan="5" class="empty-note">업로드된 판매실적이 없습니다.</td></tr>';
+    return;
+  }
+  body.innerHTML=dates.map(function(d){
+    const day=log[d]||{};
+    const items=Object.keys(day).length;
+    const qty=Object.values(day).reduce((a,b)=>a+Number(b||0),0);
+    const meta=(getSalesLog()['_meta']||{})[d]||'';
+    return '<tr><td><b>'+esc(d)+'</b></td><td>'+items+'개</td>'
+      +'<td style="color:var(--orange);font-weight:700">'+nf(qty)+'개</td>'
+      +'<td style="font-size:11px;color:var(--gray500)">'+esc(meta)+'</td>'
+      +'<td><button class="filter-btn" style="background:var(--red);padding:3px 9px" onclick="removeSalesDate(\''+esc(d)+'\')">삭제</button></td></tr>';
+  }).join('');
+}
+
+function removeSalesDate(d){
+  if(!confirm(d+' 판매실적을 삭제할까요?\n재고·리포트에서 해당 수량이 빠집니다.')) return;
+  const log=getSalesLog();
+  delete log[d];
+  if(log['_meta']) delete log['_meta'][d];
+  setSalesLog(log);
+  renderSalesLog(); renderStockTab(); renderLive(); renderDaily(); renderItemTab();
+}
+function clearSalesLog(){
+  const n=salesLogDates().length;
+  if(!n){ alert('업로드된 판매실적이 없습니다.'); return; }
+  if(!confirm('판매실적 '+n+'일치를 모두 삭제할까요?\n\n학생 신청 데이터는 그대로 유지됩니다.')) return;
+  setSalesLog({});
+  renderSalesLog(); renderStockTab(); renderLive(); renderDaily(); renderItemTab();
+}
+
+function uploadSalesFile(input){
+  const file=input.files&&input.files[0];
+  if(!file) return;
+  const reader=new FileReader();
+  reader.onload=function(e){
+    try{
+      const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
+      const ws=wb.Sheets[wb.SheetNames[0]];
+      const aoa=XLSX.utils.sheet_to_json(ws,{header:1,raw:false});
+      // 머리글 행 찾기 (품목명 + 수량)
+      let h=-1;
+      for(let i=0;i<Math.min(aoa.length,12);i++){
+        const row=(aoa[i]||[]).map(c=>String(c||'').replace(/\s/g,''));
+        if(row.some(c=>c.indexOf('품목명')!==-1) && row.some(c=>c.indexOf('수량')!==-1)){ h=i; break; }
+      }
+      if(h===-1){ alert('❌ 판매현황 양식을 인식하지 못했습니다.\n"품목명"과 "수량" 열이 있는 파일인지 확인해주세요.'); input.value=''; return; }
+      const cols=(aoa[h]||[]).map(c=>String(c||'').replace(/\s/g,''));
+      const iDate=cols.findIndex(c=>c.indexOf('일자')!==-1);
+      const iName=cols.findIndex(c=>c.indexOf('품목명')!==-1);
+      const iQty =cols.findIndex(c=>c.indexOf('수량')!==-1);
+
+      const byDate={}; const miss=[]; let okCnt=0, totQty=0;
+      const usedByDate={};
+      // ★ 이름이 구체적인 행(까르보불닭 등)을 먼저 배정해야
+      //   일반명(불닭볶음면)이 구체적인 품목을 가로채지 않는다
+      const dataRows=[];
+      for(let i=h+1;i<aoa.length;i++){
+        const row=aoa[i]||[];
+        const rawDate=String(row[iDate]||'').trim();
+        const name=String(row[iName]||'').trim();
+        const qty=Number(String(row[iQty]||'').replace(/,/g,''));
+        if(!name||!isFinite(qty)||qty<=0) continue;
+        if(rawDate.indexOf('계')!==-1||name.indexOf('계')===0) continue;
+        const dm=rawDate.match(/(\d{4})[-./](\d{1,2})[-./](\d{1,2})/);
+        if(!dm) continue;
+        const date=dm[1]+'-'+String(dm[2]).padStart(2,'0')+'-'+String(dm[3]).padStart(2,'0');
+        dataRows.push({date:date,name:name,qty:qty});
+      }
+      dataRows.sort((a,b)=>normSalesName(b.name).length-normSalesName(a.name).length);
+
+      dataRows.forEach(function(row){
+        const date=row.date, name=row.name, qty=row.qty;
+        usedByDate[date]=usedByDate[date]||new Set();
+        const m=matchSalesItem(name, usedByDate[date]);
+        if(!m){ miss.push(name); return; }
+        const k=itemKey(m.cat,m.name);
+        usedByDate[date].add(k);
+        byDate[date]=byDate[date]||{};
+        byDate[date][k]=(byDate[date][k]||0)+qty;
+        okCnt++; totQty+=qty;
+      });
+      const dates=Object.keys(byDate).sort();
+      if(!dates.length){ alert('❌ 인식된 판매 데이터가 없습니다.'); input.value=''; return; }
+
+      const log=getSalesLog();
+      const dup=dates.filter(d=>log[d]);
+      if(dup.length && !confirm('⚠️ 아래 날짜는 이미 업로드되어 있습니다.\n\n'+dup.join(', ')
+          +'\n\n해당 날짜의 실적을 새 파일 내용으로 교체할까요?\n(중복 합산되지 않습니다)')){ input.value=''; return; }
+
+      log['_meta']=log['_meta']||{};
+      const stamp=fDate(new Date())+' '+new Date().toTimeString().slice(0,5);
+      dates.forEach(function(d){ log[d]=byDate[d]; log['_meta'][d]=stamp; });
+      setSalesLog(log);
+
+      renderSalesLog(); renderStockTab(); renderLive(); renderDaily(); renderItemTab(); renderOrderTab();
+      showMsg('msgSales');
+      alert('✅ 판매실적을 반영했습니다.\n\n· 날짜: '+dates.join(', ')
+        +'\n· 인식 품목: '+okCnt+'건 / 총 '+nf(totQty)+'개'
+        +(miss.length?'\n\n⚠️ 원장에 없는 품목 '+miss.length+'건은 건너뛰었습니다:\n'+[...new Set(miss)].slice(0,6).join('\n'):''));
+    }catch(err){ alert('❌ 파일을 읽지 못했습니다: '+err.message); }
+    input.value='';
+  };
+  reader.readAsArrayBuffer(file);
 }
 
 // 발주서 엑셀 업로드
@@ -3454,6 +4047,17 @@ document.addEventListener('DOMContentLoaded',function(){
       setGasStatus(true);
       const errBar=document.getElementById('gasErrBar');
       if(errBar) errBar.remove();
+
+      // ★ 다른 화면에서 승인이 바뀌었으면 승인 목록을 다시 받아온다
+      if(res.approved!==undefined && Number(res.approved)!==approvedSet.size){
+        fetchFromGAS({action:'getApproved'},function(ar){
+          if(ar&&ar.status==='ok'&&Array.isArray(ar.data)){
+            approvedSet=new Set(ar.data);
+            LS.set('approved',ar.data);
+            renderLive(); renderLiveList(); renderStockTab();
+          }
+        });
+      }
 
       // 건수와 내용 서명이 모두 그대로면 종료 — 전체 데이터를 받지 않는다
       if(Number(res.total)===allData.length && String(res.sig)===lastSig){ liveBusy=false; return; }
