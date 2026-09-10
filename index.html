@@ -1404,11 +1404,62 @@ function daySoldMap(date){
 // ── 승인 ──
 function approvalKey(date,sid){ return date+'_'+sid; }
 function isApproved(r){ return approvedSet.has(approvalKey(r.date,r.studentId)); }
-function saveApproved(){ LS.set('approved',[...approvedSet]); pushApprovalToServer(); }
+// ══════════════════════════════════════════════════════════════
+//  승인 저장 — 모아서 한 번에 전송 (GAS 과부하 방지)
+//   체크할 때마다 서버를 부르면 승인기록·신청내역 시트를 매번 통째로
+//   다시 쓰게 되어 Apps Script 동시 실행 한도에 걸리고 연결이 끊긴다.
+//   1.2초 동안 추가 조작이 없을 때 한 번만 전송한다.
+// ══════════════════════════════════════════════════════════════
+let _apTimer=null, _apSending=false, _apPending=false, _apRetry=0;
+
+function saveApproved(){
+  LS.set('approved',[...approvedSet]);   // 화면은 즉시 반영
+  scheduleApprovalPush();
+}
+function scheduleApprovalPush(){
+  if(IS_DEMO) return;
+  _apPending=true;
+  setApprovalStatus('pending');
+  clearTimeout(_apTimer);
+  _apTimer=setTimeout(pushApprovalToServer,1200);
+}
 function pushApprovalToServer(){
   if(IS_DEMO) return;
-  fetchFromGAS({action:'saveApproved',keys:[...approvedSet].join(',')},function(){});
+  if(_apSending){ _apPending=true; return; }   // 전송 중이면 끝난 뒤 다시
+  _apSending=true; _apPending=false;
+  setApprovalStatus('saving');
+  const snapshot=[...approvedSet].join(',');
+  fetchFromGAS({action:'saveApproved',keys:snapshot},function(res,err){
+    _apSending=false;
+    if(err||!res||res.status!=='ok'){
+      _apRetry++;
+      if(_apRetry<=3){
+        setApprovalStatus('retry');
+        setTimeout(pushApprovalToServer, 1500*_apRetry);   // 점점 늦게 재시도
+      } else {
+        setApprovalStatus('failed');
+      }
+      return;
+    }
+    _apRetry=0;
+    setApprovalStatus('saved');
+    if(_apPending) scheduleApprovalPush();   // 그 사이 추가 변경분 반영
+  });
 }
+// 승인 저장 상태 표시 (관리자가 저장 여부를 눈으로 확인)
+function setApprovalStatus(st){
+  const el=document.getElementById('gasStatus');
+  if(!el) return;
+  if(st==='pending'){ el.textContent='✏️ 승인 변경 중'; el.className='status-badge status-load'; }
+  else if(st==='saving'){ el.textContent='💾 저장 중...'; el.className='status-badge status-load'; }
+  else if(st==='retry'){ el.textContent='🔁 재시도 중'; el.className='status-badge status-load'; }
+  else if(st==='saved'){ el.textContent='✅ 승인 저장됨'; el.className='status-badge status-ok';
+    setTimeout(function(){ if(!_apPending&&!_apSending) setGasStatus(true); },2500); }
+  else if(st==='failed'){ el.textContent='🔴 승인 저장 실패'; el.className='status-badge status-err';
+    alert('⚠️ 승인 내용을 서버에 저장하지 못했습니다.\n\n화면에는 반영되어 있으나 구글 시트에는 기록되지 않았습니다.\n네트워크 확인 후 「🔄 새로고침」을 눌러 다시 시도해주세요.'); }
+}
+// 승인 저장이 진행 중인지 (폴링 일시 중지 판단용)
+function isApprovalBusy(){ return _apSending || _apPending; }
 
 // 재고 차감 대상이 되는 신청 건
 function salesData(){
@@ -2343,7 +2394,8 @@ function renderStudentDetail(){
     +'<div class="table-wrap"><table><thead><tr><th style="width:90px">날짜</th><th style="width:70px">시간</th><th>선택 물품</th><th style="width:54px">결제</th><th style="width:66px">수령</th><th style="width:56px">상태</th></tr></thead><tbody>'+hist+'</tbody></table></div>';
 }
 
-function exportStudentExcel(){
+function exportStudentExcel(){ ensureXLSX(function(ok){ if(!ok){alert("❌ 엑셀 모듈을 불러오지 못했습니다.\n인터넷 연결을 확인한 뒤 새로고침해주세요.");return;} exportStudentExcel_(); }); }
+function exportStudentExcel_(){
   const list=studentAgg();
   const head=['순위','학번','성명','학과','학년','신청횟수','수령물량','최근신청일','계좌이체','현금','선호1','선호1횟수','선호2','선호2횟수','선호3','선호3횟수','최다품목','최다품목횟수'];
   const body=list.map(function(s,i){
@@ -2573,7 +2625,8 @@ function renderStats(){
   ];
   document.getElementById('statIndicatorBody').innerHTML=rows.map(r=>'<tr><td><b>'+r[0]+'</b></td><td style="font-weight:700;color:var(--primary)">'+r[1]+'</td><td style="font-size:11px;color:var(--gray500)">'+r[2]+'</td></tr>').join('');
 }
-function exportStatsExcel(){
+function exportStatsExcel(){ ensureXLSX(function(ok){ if(!ok){alert("❌ 엑셀 모듈을 불러오지 못했습니다.\n인터넷 연결을 확인한 뒤 새로고침해주세요.");return;} exportStatsExcel_(); }); }
+function exportStatsExcel_(){
   const recs=statRecs();
   const dates=[...new Set(recs.map(r=>r.date))].sort();
   const wb=XLSX.utils.book_new();
@@ -2692,7 +2745,8 @@ function stockAoa(){
   const head=['연번','대분류','제조사','품명','입고','판매','잔여','소진율(%)'];
   return [head].concat(stockRows().map(r=>[r.no,r.cat,r.maker,r.name,r.inQty,r.sold,r.remain,r.pct]));
 }
-function exportAllExcel(){
+function exportAllExcel(){ ensureXLSX(function(ok){ if(!ok){alert("❌ 엑셀 모듈을 불러오지 못했습니다.\n인터넷 연결을 확인한 뒤 새로고침해주세요.");return;} exportAllExcel_(); }); }
+function exportAllExcel_(){
   const wb=XLSX.utils.book_new();
   aoaSheet('신청목록',appRowsAoa(allData),wb);
   aoaSheet('재고현황',stockAoa(),wb);
@@ -2700,12 +2754,14 @@ function exportAllExcel(){
   aoaSheet('대분류집계',[['대분류','입고','판매','잔여','소진율(%)']].concat(roll.map(r=>[r.cat,r.inQty,r.sold,r.remain,r.pct])),wb);
   XLSX.writeFile(wb,'천원매점_전체현황_'+fDate(new Date())+'.xlsx');
 }
-function exportStockExcel(){
+function exportStockExcel(){ ensureXLSX(function(ok){ if(!ok){alert("❌ 엑셀 모듈을 불러오지 못했습니다.\n인터넷 연결을 확인한 뒤 새로고침해주세요.");return;} exportStockExcel_(); }); }
+function exportStockExcel_(){
   const wb=XLSX.utils.book_new();
   aoaSheet('재고현황',stockAoa(),wb);
   XLSX.writeFile(wb,'천원매점_재고현황_'+fDate(new Date())+'.xlsx');
 }
-function exportDailyExcel(){
+function exportDailyExcel(){ ensureXLSX(function(ok){ if(!ok){alert("❌ 엑셀 모듈을 불러오지 못했습니다.\n인터넷 연결을 확인한 뒤 새로고침해주세요.");return;} exportDailyExcel_(); }); }
+function exportDailyExcel_(){
   const date=document.getElementById('dailyDate').value||fDate(new Date());
   const st=dailyStats(date);
   const wb=XLSX.utils.book_new();
@@ -2719,7 +2775,8 @@ function exportDailyExcel(){
   aoaSheet('신청명세',appRowsAoa(st.day),wb);
   XLSX.writeFile(wb,'천원매점_일일리포트_'+date+'.xlsx');
 }
-function exportSignExcel(){
+function exportSignExcel(){ ensureXLSX(function(ok){ if(!ok){alert("❌ 엑셀 모듈을 불러오지 못했습니다.\n인터넷 연결을 확인한 뒤 새로고침해주세요.");return;} exportSignExcel_(); }); }
+function exportSignExcel_(){
   const date=document.getElementById('signDate').value;
   const rows=signRows();
   const head=['연번','학과','학년','학번','성명','물품①','물품②','물품③','물품④','결제','수령','승인','서명'];
@@ -2733,7 +2790,8 @@ function exportSignExcel(){
   aoaSheet('수령확인부',[['경기도 대학생 천원매점 물품 수령 확인부 ('+date+')'],[],head].concat(body),wb);
   XLSX.writeFile(wb,'천원매점_수령확인부_'+date+'.xlsx');
 }
-function exportListExcel(){
+function exportListExcel(){ ensureXLSX(function(ok){ if(!ok){alert("❌ 엑셀 모듈을 불러오지 못했습니다.\n인터넷 연결을 확인한 뒤 새로고침해주세요.");return;} exportListExcel_(); }); }
+function exportListExcel_(){
   const wb=XLSX.utils.book_new();
   aoaSheet('신청목록',appRowsAoa(listRows()),wb);
   XLSX.writeFile(wb,'천원매점_신청목록_'+fDate(new Date())+'.xlsx');
@@ -3187,6 +3245,28 @@ const SALES_ALIAS = {
   '까르보불닭볶음면':     '컵라면|까르보불닭볶음면 큰컵'
 };
 
+// ══════════════════════════════════════════════════════════════
+//  SheetJS(XLSX) 준비 보장
+//   defer 로드가 지연되거나 CDN이 차단되면 XLSX 가 없어 업로드가 실패한다.
+//   필요한 순간에 확인하고, 없으면 대체 CDN으로 즉시 불러온다.
+// ══════════════════════════════════════════════════════════════
+const XLSX_SRCS=[
+  'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js',
+  'https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js'
+];
+function ensureXLSX(cb){
+  if(typeof XLSX!=='undefined'){ cb(true); return; }
+  let i=0;
+  (function tryLoad(){
+    if(i>=XLSX_SRCS.length){ cb(false); return; }
+    const sc=document.createElement('script');
+    sc.src=XLSX_SRCS[i++];
+    sc.onload=function(){ cb(typeof XLSX!=='undefined'); };
+    sc.onerror=function(){ tryLoad(); };
+    document.head.appendChild(sc);
+  })();
+}
+
 function normSalesName(x){
   return String(x||'').replace(/\[[^\]]*\]/g,'').replace(/[\s()（）]/g,'').toLowerCase();
 }
@@ -3322,6 +3402,15 @@ function clearSalesLog(){
 function uploadSalesFile(input){
   const file=input.files&&input.files[0];
   if(!file) return;
+  ensureXLSX(function(ok){
+    if(!ok){
+      alert('❌ 엑셀 처리 모듈을 불러오지 못했습니다.\n\n· 인터넷 연결을 확인해주세요\n· 학교 방화벽이 cdn.jsdelivr.net 을 막고 있을 수 있습니다\n· 페이지를 새로고침한 뒤 다시 시도해주세요');
+      input.value=''; return;
+    }
+    doUploadSalesFile(input,file);
+  });
+}
+function doUploadSalesFile(input,file){
   const reader=new FileReader();
   reader.onload=function(e){
     try{
@@ -3398,6 +3487,15 @@ function uploadSalesFile(input){
 function uploadOrderFile(input){
   const file=input.files&&input.files[0];
   if(!file) return;
+  ensureXLSX(function(ok){
+    if(!ok){
+      alert('❌ 엑셀 처리 모듈을 불러오지 못했습니다.\n인터넷 연결 또는 방화벽을 확인한 뒤 새로고침해주세요.');
+      input.value=''; return;
+    }
+    doUploadOrderFile(input,file);
+  });
+}
+function doUploadOrderFile(input,file){
   const reader=new FileReader();
   reader.onload=function(e){
     try{
@@ -3497,7 +3595,8 @@ function uploadOrderFile(input){
   reader.readAsArrayBuffer(file);
 }
 
-function exportOrderExcel(){
+function exportOrderExcel(){ ensureXLSX(function(ok){ if(!ok){alert("❌ 엑셀 모듈을 불러오지 못했습니다.\n인터넷 연결을 확인한 뒤 새로고침해주세요.");return;} exportOrderExcel_(); }); }
+function exportOrderExcel_(){
   const o=getOrder();
   const rounds=orderRoundList();
   const head=['구분','제품명','규격','재고단위','박스입수량','전체수량','BOX','발주량','남은 수량']
@@ -3922,6 +4021,15 @@ function resetStock(){
 function uploadStockFile(input){
   const file=input.files&&input.files[0];
   if(!file) return;
+  ensureXLSX(function(ok){
+    if(!ok){
+      alert('❌ 엑셀 처리 모듈을 불러오지 못했습니다.\n인터넷 연결 또는 방화벽을 확인한 뒤 새로고침해주세요.');
+      input.value=''; return;
+    }
+    doUploadStockFile(input,file);
+  });
+}
+function doUploadStockFile(input,file){
   const reader=new FileReader();
   reader.onload=function(e){
     try{
@@ -4023,6 +4131,7 @@ document.addEventListener('DOMContentLoaded',function(){
 
   function refreshLiveOnly(){
     if(liveBusy) return;
+    if(isApprovalBusy()) return;          // 승인 저장 중에는 조회를 멈춰 GAS 부하를 낮춘다
     if(!document.getElementById('tab-live').classList.contains('active')) return;
     if(document.hidden) return;
 
@@ -4102,12 +4211,18 @@ document.addEventListener('DOMContentLoaded',function(){
     }
   });
 
+  // 승인 내용이 저장되기 전에 창을 닫으면 경고
+  window.addEventListener('beforeunload',function(e){
+    if(isApprovalBusy()){ e.preventDefault(); e.returnValue=''; return ''; }
+  });
+
   // 창을 다시 보면 즉시 갱신
   document.addEventListener('visibilitychange',function(){ if(!document.hidden) refreshLiveOnly(); });
   window.addEventListener('focus',refreshLiveOnly);
 
-  // 실시간 탭: 2초 주기 경량 폴링(ping) — 건수 변화 시에만 전체 조회
-  livePoll=setInterval(refreshLiveOnly,2000);
+  // 실시간 탭: 4초 주기 경량 폴링(ping) — 건수 변화 시에만 전체 조회
+  //   (승인 작업 중에는 자동으로 멈춰 GAS 동시 실행 한도를 넘지 않게 한다)
+  livePoll=setInterval(refreshLiveOnly,4000);
   // 그 외 데이터(설정·재고)는 3분 주기로만 전체 재조회
   setInterval(function(){
     if(!document.hidden && !document.getElementById('tab-live').classList.contains('active')) loadAll();
