@@ -4,6 +4,11 @@
 <meta charset="UTF-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self' https://cdn.jsdelivr.net https://script.google.com https://script.googleusercontent.com https://fonts.googleapis.com https://fonts.gstatic.com; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://script.google.com https://script.googleusercontent.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://script.google.com https://script.googleusercontent.com;">
 <meta http-equiv="X-Content-Type-Options" content="nosniff">
+<!-- ── 캐시 방지: 브라우저가 옛 관리자 화면을 계속 보여주는 문제 대응 ── -->
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate, max-age=0">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<meta name="version" content="2026-09-10-2">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>경기도 대학생 천원매점 관리자</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -235,6 +240,7 @@ tr.waiting-row td{opacity:.62}
   <div class="right">
     <span class="status-badge status-load" id="gasStatus">연결 확인 중</span>
     <button class="hbtn hbtn-ghost" onclick="loadAll()">🔄 새로고침</button>
+    <button class="hbtn hbtn-ghost" title="화면이 최신이 아닌 것 같으면 눌러주세요" onclick="hardReload()">♻️ 화면 버전 갱신</button>
     <button class="hbtn hbtn-green" onclick="exportAllExcel()">📥 전체 엑셀</button>
   </div>
 </div>
@@ -942,6 +948,27 @@ tr.waiting-row td{opacity:.62}
   </div>
 </div>
 
+<script>
+// ── 캐시된 옛 화면 자동 갱신 ──
+//   주소에 버전값이 없을 때만 한 번 붙여 다시 불러온다 (무한루프 방지).
+function hardReload(){
+  try{
+    var u=new URL(location.href);
+    u.searchParams.set('v', String(Date.now()));
+    location.replace(u.toString());
+  }catch(e){ location.reload(true); }
+}
+(function(){
+  try{
+    var u=new URL(location.href);
+    if(!u.searchParams.get('v')){
+      var VER=(document.querySelector('meta[name="version"]')||{}).content||String(Date.now());
+      u.searchParams.set('v',VER);
+      location.replace(u.toString());
+    }
+  }catch(e){}
+})();
+</script>
 <script>
 // ══════════════════════════════════════════════════════════════
 //  경기도 대학생 천원매점 — 관리자 화면
@@ -3267,6 +3294,23 @@ function ensureXLSX(cb){
   })();
 }
 
+// 판매실적 '일자-No.' 값에서 날짜만 뽑아낸다.
+//  지원 형식: 2026/09/03 -561 · 2026-09-10 · 20260910-151 · 20260910
+function parseSalesDate(v){
+  const t=String(v||'').trim();
+  if(!t) return '';
+  // 구분자가 있는 형식
+  let m=t.match(/(\d{4})[-./](\d{1,2})[-./](\d{1,2})/);
+  if(m) return m[1]+'-'+String(m[2]).padStart(2,'0')+'-'+String(m[3]).padStart(2,'0');
+  // 구분자 없는 8자리 (20260910-151, 20260910)
+  m=t.match(/(\d{4})(\d{2})(\d{2})/);
+  if(m){
+    const mo=Number(m[2]), dy=Number(m[3]);
+    if(mo>=1&&mo<=12&&dy>=1&&dy<=31) return m[1]+'-'+m[2]+'-'+m[3];
+  }
+  return '';
+}
+
 function normSalesName(x){
   return String(x||'').replace(/\[[^\]]*\]/g,'').replace(/[\s()（）]/g,'').toLowerCase();
 }
@@ -3429,22 +3473,53 @@ function doUploadSalesFile(input,file){
       const iName=cols.findIndex(c=>c.indexOf('품목명')!==-1);
       const iQty =cols.findIndex(c=>c.indexOf('수량')!==-1);
 
+      // ★ 날짜 열이 아예 없는 경우(직접 지우고 올린 경우 포함) 대비:
+      //   전체 행이 같은 날짜라고 보고, 관리자에게 그 날짜를 한 번만 물어본다.
+      let forcedDate=null;
+      if(iDate===-1){
+        const ans=prompt('이 파일에 "일자" 열이 없습니다.\n전체 내용을 어느 날짜의 실적으로 등록할까요?\n(예: 2026-09-10)', fDate(new Date()));
+        if(!ans){ input.value=''; return; }
+        forcedDate=parseSalesDate(ans.trim())||ans.trim();
+        if(!/^\d{4}-\d{2}-\d{2}$/.test(forcedDate)){
+          alert('❌ 날짜 형식을 인식하지 못했습니다. yyyy-mm-dd 형식으로 다시 시도해주세요.');
+          input.value=''; return;
+        }
+      }
+
       const byDate={}; const miss=[]; let okCnt=0, totQty=0;
       const usedByDate={};
       // ★ 이름이 구체적인 행(까르보불닭 등)을 먼저 배정해야
       //   일반명(불닭볶음면)이 구체적인 품목을 가로채지 않는다
       const dataRows=[];
+      let unparsedDateCnt=0;
       for(let i=h+1;i<aoa.length;i++){
         const row=aoa[i]||[];
-        const rawDate=String(row[iDate]||'').trim();
+        const rawDate=forcedDate?forcedDate:String(row[iDate]||'').trim();
         const name=String(row[iName]||'').trim();
         const qty=Number(String(row[iQty]||'').replace(/,/g,''));
         if(!name||!isFinite(qty)||qty<=0) continue;
-        if(rawDate.indexOf('계')!==-1||name.indexOf('계')===0) continue;
-        const dm=rawDate.match(/(\d{4})[-./](\d{1,2})[-./](\d{1,2})/);
-        if(!dm) continue;
-        const date=dm[1]+'-'+String(dm[2]).padStart(2,'0')+'-'+String(dm[3]).padStart(2,'0');
+        // 합계·소계·총합계·인쇄시각 행 제외
+        if(/계$|합계|소계|누계/.test(rawDate) || /^합계|^소계|^총/.test(name)) continue;
+        const date=forcedDate||parseSalesDate(rawDate);
+        if(!date){ unparsedDateCnt++; continue; }
         dataRows.push({date:date,name:name,qty:qty});
+      }
+      // ★ 날짜 열은 있지만 모든 값이 인식 불가한 형식일 때도 같은 방식으로 구제
+      if(!dataRows.length && !forcedDate && unparsedDateCnt>0){
+        const ans=prompt('일자 값을 인식하지 못했습니다(형식이 다를 수 있습니다).\n전체 내용을 어느 날짜의 실적으로 등록할까요?\n(예: 2026-09-10)', fDate(new Date()));
+        if(ans){
+          const fd=parseSalesDate(ans.trim())||ans.trim();
+          if(/^\d{4}-\d{2}-\d{2}$/.test(fd)){
+            for(let i=h+1;i<aoa.length;i++){
+              const row=aoa[i]||[];
+              const name=String(row[iName]||'').trim();
+              const qty=Number(String(row[iQty]||'').replace(/,/g,''));
+              if(!name||!isFinite(qty)||qty<=0) continue;
+              if(/^합계|^소계|^총/.test(name)) continue;
+              dataRows.push({date:fd,name:name,qty:qty});
+            }
+          }
+        }
       }
       dataRows.sort((a,b)=>normSalesName(b.name).length-normSalesName(a.name).length);
 
@@ -3460,7 +3535,10 @@ function doUploadSalesFile(input,file){
         okCnt++; totQty+=qty;
       });
       const dates=Object.keys(byDate).sort();
-      if(!dates.length){ alert('❌ 인식된 판매 데이터가 없습니다.'); input.value=''; return; }
+      if(!dates.length){
+        alert('❌ 인식된 판매 데이터가 없습니다.\n\n확인해주세요:\n· "품목명"·"수량" 열에 실제 값이 들어있는지\n· 화면이 최신 버전인지 (상단 ♻️ 화면 버전 갱신 버튼을 눌러보세요)\n· 그래도 안 되면 파일을 다시 확인해 관리자에게 문의해주세요');
+        input.value=''; return;
+      }
 
       const log=getSalesLog();
       const dup=dates.filter(d=>log[d]);
