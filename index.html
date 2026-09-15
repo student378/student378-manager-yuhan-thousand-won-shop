@@ -1458,11 +1458,12 @@ function pushApprovalToServer(){
   const snapshot=[...approvedSet].join(',');
   fetchFromGAS({action:'saveApproved',keys:snapshot},function(res,err){
     _apSending=false;
+    // 서버가 잠시 바쁠 때(busy)나 네트워크 오류는 끊김이 아니라 '잠시 후 재시도'로 처리
     if(err||!res||res.status!=='ok'){
       _apRetry++;
-      if(_apRetry<=3){
+      if(_apRetry<=6){                                  // 재시도 3→6회로 확대
         setApprovalStatus('retry');
-        setTimeout(pushApprovalToServer, 1500*_apRetry);   // 점점 늦게 재시도
+        setTimeout(pushApprovalToServer, Math.min(1500*_apRetry, 6000));   // 최대 6초 간격
       } else {
         setApprovalStatus('failed');
       }
@@ -1541,7 +1542,7 @@ function fetchFromGAS(params,cb){
     if(script.parentNode) script.parentNode.removeChild(script);
     cb(data,err);
   }
-  const timer=setTimeout(function(){ finish(null,'timeout'); },12000);
+  const timer=setTimeout(function(){ finish(null,'timeout'); },20000);
   window[name]=function(data){ finish(data,null); };
   // ★ 스크립트 로드 실패(권한 오류·잘못된 URL·404)를 즉시 감지
   script.onerror=function(){ finish(null,'network'); };
