@@ -8,7 +8,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate, max-age=0">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<meta name="version" content="2026-09-10-2">
+<meta name="version" content="2026-09-16">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>경기도 대학생 천원매점 관리자</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -1251,7 +1251,7 @@ function saveBundle(){
 //  간편 신청 모드 — 학생이 품목을 고르지 않고 기본정보만 입력
 //   { on, msg }   재고는 판매실적 업로드로 관리
 // ══════════════════════════════════════════════════════════════
-function getSimple(){ return LS.get('simple',{on:false,msg:''}) || {on:false,msg:''}; }
+function getSimple(){ return LS.get('simple',{on:true,msg:''}) || {on:true,msg:''}; }
 function renderSimpleBadge(){
   const b=document.getElementById('simpleStateBadge'); if(!b) return;
   const on=getSimple().on;
@@ -1269,29 +1269,35 @@ function saveSimple(){
 
 // ══════════════════════════════════════════════════════════════
 //  진열대 / 창고 재고 관리
-//   총 보유량(입고) = 진열대 잔여 + 창고 잔여 + 판매
-//   ▸ display_qty[key] = 창고에서 진열대로 꺼낸 '누적 반출량'
-//     진열 잔여 = 누적반출 − 판매      (판매는 진열대에서만 빠짐)
-//     창고 잔여 = 총보유 − 누적반출
-//     ⇒ 진열잔여 + 창고잔여 = 총보유 − 판매 = 총잔여   (항상 일치)
-//   ▸ 관리자는 '현재 진열 잔여'를 입력하고, 내부에서 누적으로 환산한다.
+//   총 보유량(입고) = 진열대(올려둔 양) + 창고
+//   ▸ display_qty[key] = 진열대에 올려둔 총 수량 (관리자가 입력한 값 그대로)
+//     판매가 일어나면 그만큼 진열대에서 나간다.
+//     진열 잔여 = 진열대에 올려둔 양 − 판매(단, 0 미만이면 0)
+//     창고 잔여 = 총보유 − 진열대에 올려둔 양
+//   ▸ 저장값은 판매 건수와 무관하므로, 승인이 늘어도 진열값이 흔들리지 않는다.
+//     (미설정이면 전량 진열로 간주 — 기존 운영과 동일)
 // ══════════════════════════════════════════════════════════════
 function getDisplayQty(){ return LS.get('display_qty',{}) || {}; }
 function setDisplayQty(m){
   LS.set('display_qty',m);
-  if(!IS_DEMO) fetchFromGAS({action:'saveSettings',displayQty:JSON.stringify(m)},function(){});
+  if(!IS_DEMO) fetchFromGAS({action:'saveSettings',displayQty:JSON.stringify(m)},function(res,err){
+    // 저장 실패 시에도 로컬값은 유지 — 다음 조작이나 새로고침 때 재전송
+    if(err||!res||res.status!=='ok'){ _dqDirty=true; }
+    else { _dqDirty=false; }
+  });
 }
+let _dqDirty=false;
 // 품목별 진열/창고 현황 계산
 function shelfOf(key, inQty, soldQty){
   const dq=getDisplayQty();
   const raw=dq[key];
-  // 미설정이면 전량 진열로 간주 (기존 운영과 동일하게 동작)
-  let out = (raw===undefined||raw===null||raw==='') ? inQty : Number(raw);
-  // 누적 반출량은 판매량 이상, 총보유 이하로 보정
-  out = Math.max(soldQty, Math.min(out, inQty));
-  const shelf = Math.max(0, out - soldQty);        // 진열대 잔여
-  const store = Math.max(0, inQty - out);          // 창고 잔여
-  return {out:out, placed:shelf, shelf:shelf, store:store};
+  // 미설정이면 전량 진열로 간주
+  let placed = (raw===undefined||raw===null||raw==='') ? inQty : Number(raw);
+  // 진열대에 올려둔 양은 0~총보유 범위로 보정
+  placed = Math.max(0, Math.min(placed, inQty));
+  const shelf = Math.max(0, placed - soldQty);     // 진열대 잔여 = 올려둔 양 − 판매
+  const store = Math.max(0, inQty - placed);       // 창고 잔여 = 총보유 − 올려둔 양
+  return {placed:placed, shelf:shelf, store:store};
 }
 // 수량을 '박스 + 낱개'로 환산해 보여준다 (입수량 기준)
 //  예) 입수 24, 189개 → '7박스 21개'
@@ -1313,17 +1319,16 @@ function defaultShelf(it){ return Number(it.ins||0)||0; }
 
 // 진열 수량 직접 지정 (총 보유량을 넘을 수 없음)
 // 입력값은 '현재 진열 잔여' — 내부적으로 누적 반출량으로 환산해 저장
-function setShelfQty(key, shelfQty){
+function setShelfQty(key, placedQty){
   const row=stockRows().find(r=>r.key===key);
   if(!row) return;
-  const maxShelf=row.remain;                       // 진열은 총잔여를 넘을 수 없다
-  let v=Math.max(0,Math.floor(Number(shelfQty)||0));
-  if(v>maxShelf){
-    alert('진열 가능 수량은 최대 '+nf(maxShelf)+'개입니다.\n(총보유 '+nf(row.inQty)+' − 판매 '+nf(row.sold)+')');
-    v=maxShelf;
+  let v=Math.max(0,Math.floor(Number(placedQty)||0));
+  if(v>row.inQty){
+    alert('진열 수량은 총보유('+nf(row.inQty)+'개)를 넘을 수 없습니다.');
+    v=row.inQty;
   }
   const dq=getDisplayQty();
-  dq[key]=row.sold + v;                            // 누적 반출량 = 판매 + 진열잔여
+  dq[key]=v;                                        // 진열대에 올려둔 총량 그대로 저장
   setDisplayQty(dq);
   renderStockTable(); renderLive();
 }
@@ -1334,9 +1339,8 @@ function resetShelfByBox(){
   let n=0;
   stockRows().forEach(function(r){
     const box=defaultShelf({ins:r.ins});
-    const want=box>0?box:r.remain;
-    const v=Math.min(want, r.remain);              // 진열 잔여 목표
-    dq[r.key]=r.sold + v;                          // 누적 반출량으로 저장
+    const want=box>0?box:r.inQty;
+    dq[r.key]=Math.min(want, r.inQty);              // 진열대에 올려둘 총량
     n++;
   });
   setDisplayQty(dq);
@@ -1363,7 +1367,7 @@ function refillAllShelf(){
   plan.forEach(function(p){
     const row=cur.find(x=>x.key===p.key);
     if(!row) return;
-    dq[p.key]=row.out + p.add;                     // 누적 반출량에 더한다
+    dq[p.key]=Math.min(row.inQty, row.placed + p.add);   // 올려둔 총량에 더한다
   });
   setDisplayQty(dq);
   renderStockTable(); renderLive();
@@ -1397,7 +1401,8 @@ function getStockMap(){
   const map={};
   CATALOG.forEach(g=>g.items.forEach(it=>{
     const k=itemKey(g.c,it.n);
-    map[k]=(ov[k]!==undefined&&ov[k]!==null&&ov[k]!=='')?Number(ov[k]):it.stock;
+    let v=(ov[k]!==undefined&&ov[k]!==null&&ov[k]!=='')?Number(ov[k]):Number(it.stock);
+    map[k]=isFinite(v)?v:0;
   }));
   return map;
 }
@@ -1525,7 +1530,7 @@ function soldMapFrom(records, opt){
   }
   return m;
 }
-function totalOf(map){ let s=0; for(const k in map) s+=map[k]; return s; }
+function totalOf(map){ let s=0; for(const k in map){ const v=Number(map[k]); if(isFinite(v)) s+=v; } return s; }
 
 // ══════════════════════════════════════════════════════════════
 //  통신
@@ -1624,6 +1629,7 @@ function loadAll(){
       // ★ 물품원장(입고 수량)을 서버 값으로 통일 — 어느 PC에서 열어도 같은 재고
       if(d.stock) LS.set('stock_override',d.stock);
       if(d.manualSoldout) LS.set('manual_soldout',d.manualSoldout);
+      if(d.displayQty) LS.set('display_qty',d.displayQty);
       LS.set('account',{bank:d.bank||'카카오뱅크',no:d.bankNo||'3333-13-8457612',owner:d.bankOwner||'최 광 균',amt:d.bankAmt||'1,000원'});
       if(d.soldoutManual!==undefined) LS.set('soldout',{manual:d.soldoutManual==='true'||d.soldoutManual===true,msg:d.soldoutMsg||'금일 천원매점 판매가 종료되었습니다. 감사합니다.'});
     } else if(err==='network') netErr=true;
@@ -1750,7 +1756,7 @@ function buildLiveDateTabs(){
 function renderLive(){
   const sold=soldMapFrom(salesData());
   const total=totalOf(STOCK), s=totalOf(sold), remain=Math.max(0,total-s);
-  const pct= total>0?Math.round(s/total*100):0;
+  const pct= (total>0 && isFinite(s))?Math.round(s/total*100):0;
   document.getElementById('liveTotal').textContent=nf(total);
   document.getElementById('liveSold').textContent=nf(s);
   document.getElementById('liveRemain').textContent=nf(remain);
@@ -2102,10 +2108,10 @@ function renderStockTable(){
       +'<td>'+esc(r.name)+'</td>'
       +'<td><b>'+nf(r.inQty)+'</b>'+boxSub(r.inQty,r.ins)+'</td>'
       +'<td style="color:var(--orange);font-weight:700">'+nf(r.sold)+boxSub(r.sold,r.ins)+'</td>'
-      +'<td><input type="number" min="0" max="'+r.remain+'" class="shelf-in" data-k="'+esc(r.key)+'" value="'+r.shelf+'"'
-        +' title="지금 진열대에 남아 있는 수량 (최대 '+r.remain+')"'
+      +'<td><input type="number" min="0" max="'+r.inQty+'" class="shelf-in" data-k="'+esc(r.key)+'" value="'+r.placed+'"'
+        +' title="진열대에 올려둔 총 수량 (최대 총보유 '+r.inQty+') · 현재 진열 잔여 '+r.shelf+'"'
         +' style="width:62px;padding:4px 6px;border:1.5px solid '+(r.shelf<=0?'var(--red)':'var(--purple)')+';border-radius:5px;font-size:11.5px;text-align:right;font-family:inherit;font-weight:700;color:'+(r.shelf<=0?'var(--red)':'var(--purple)')+'">'
-        +boxSub(r.shelf,r.ins)+'</td>'
+        +'<div style="font-size:10px;color:var(--gray500);font-weight:500;margin-top:1px">잔여 '+nf(r.shelf)+'</div></td>'
       +'<td style="font-weight:700;color:'+(r.store<=0?'var(--gray500)':'var(--blue)')+'">'+nf(r.store)+boxSub(r.store,r.ins)+'</td>'
       +'<td style="color:'+color+';font-weight:800">'+(off?'판매중지':(r.remain===0?'품절':nf(r.remain)))
         +(off||r.remain===0?'':boxSub(r.remain,r.ins))+'</td>'
@@ -4236,10 +4242,15 @@ document.addEventListener('DOMContentLoaded',function(){
       const errBar=document.getElementById('gasErrBar');
       if(errBar) errBar.remove();
 
-      // ★ 다른 화면에서 승인이 바뀌었으면 승인 목록을 다시 받아온다
-      if(res.approved!==undefined && Number(res.approved)!==approvedSet.size){
+      // ★ 다른 화면에서 승인이 바뀌었으면 승인 목록을 다시 받아온다.
+      //   단, 내 화면의 승인 저장이 아직 서버에 반영 중(pending/재시도)일 때는
+      //   서버의 옛 값으로 내 로컬 승인을 덮어쓰지 않는다 — 승인이 사라지는 현상 방지.
+      if(res.approved!==undefined && Number(res.approved)!==approvedSet.size
+         && !isApprovalBusy() && _apRetry===0){
         fetchFromGAS({action:'getApproved'},function(ar){
           if(ar&&ar.status==='ok'&&Array.isArray(ar.data)){
+            // 그 사이 내가 또 승인을 건드렸으면 덮어쓰지 않는다
+            if(isApprovalBusy()||_apRetry>0) return;
             approvedSet=new Set(ar.data);
             LS.set('approved',ar.data);
             renderLive(); renderLiveList(); renderStockTab();
