@@ -8,7 +8,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate, max-age=0">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<meta name="version" content="2026-09-16">
+<meta name="version" content="2026-09-18">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>경기도 대학생 천원매점 관리자</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -1296,7 +1296,10 @@ function shelfOf(key, inQty, soldQty){
   // 진열대에 올려둔 양은 0~총보유 범위로 보정
   placed = Math.max(0, Math.min(placed, inQty));
   const shelf = Math.max(0, placed - soldQty);     // 진열대 잔여 = 올려둔 양 − 판매
-  const store = Math.max(0, inQty - placed);       // 창고 잔여 = 총보유 − 올려둔 양
+  // 창고 잔여 = 총보유 − max(진열 배정, 판매)
+  //   진열이 다 팔리면(판매>진열) 그 초과분은 창고에서도 빠져야 한다.
+  //   기존엔 (총보유−진열)로만 계산해 판매분이 창고에 그대로 남는 오류가 있었다.
+  const store = Math.max(0, inQty - Math.max(placed, soldQty));
   return {placed:placed, shelf:shelf, store:store};
 }
 // 수량을 '박스 + 낱개'로 환산해 보여준다 (입수량 기준)
@@ -1489,7 +1492,7 @@ function setApprovalStatus(st){
   else if(st==='saved'){ el.textContent='✅ 승인 저장됨'; el.className='status-badge status-ok';
     setTimeout(function(){ if(!_apPending&&!_apSending) setGasStatus(true); },2500); }
   else if(st==='failed'){ el.textContent='🔴 승인 저장 실패'; el.className='status-badge status-err';
-    alert('⚠️ 승인 내용을 서버에 저장하지 못했습니다.\n\n화면에는 반영되어 있으나 구글 시트에는 기록되지 않았습니다.\n네트워크 확인 후 「🔄 새로고침」을 눌러 다시 시도해주세요.'); }
+    alert('⚠️ 승인 내용을 여러 번 시도했지만 서버에 저장하지 못했습니다.\n\n화면에는 반영되어 있습니다. 인터넷 연결을 확인한 뒤,\n상단 「🔄 새로고침」을 누르면 자동으로 다시 저장을 시도합니다.'); }
 }
 // 승인 저장이 진행 중인지 (폴링 일시 중지 판단용)
 function isApprovalBusy(){ return _apSending || _apPending; }
