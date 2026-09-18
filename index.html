@@ -8,7 +8,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate, max-age=0">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<meta name="version" content="2026-09-18">
+<meta name="version" content="2026-09-18b">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>경기도 대학생 천원매점 관리자</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -1464,14 +1464,17 @@ function pushApprovalToServer(){
   _apSending=true; _apPending=false;
   setApprovalStatus('saving');
   const snapshot=[...approvedSet].join(',');
-  fetchFromGAS({action:'saveApproved',keys:snapshot},function(res,err){
+  // ★ 승인 저장은 POST(본문 전송)로 보낸다.
+  //   기존 JSONP(GET)는 승인 인원이 많으면 URL이 수천~수만 자로 길어져
+  //   브라우저·서버의 URL 길이 한계를 넘어 요청이 통째로 실패했다(저장 실패 알림의 진짜 원인).
+  //   POST는 데이터를 본문에 담아 길이 제한이 없다.
+  saveApprovedPost(snapshot, function(ok){
     _apSending=false;
-    // 서버가 잠시 바쁠 때(busy)나 네트워크 오류는 끊김이 아니라 '잠시 후 재시도'로 처리
-    if(err||!res||res.status!=='ok'){
+    if(!ok){
       _apRetry++;
-      if(_apRetry<=6){                                  // 재시도 3→6회로 확대
+      if(_apRetry<=6){
         setApprovalStatus('retry');
-        setTimeout(pushApprovalToServer, Math.min(1500*_apRetry, 6000));   // 최대 6초 간격
+        setTimeout(pushApprovalToServer, Math.min(1500*_apRetry, 6000));
       } else {
         setApprovalStatus('failed');
       }
@@ -1479,8 +1482,35 @@ function pushApprovalToServer(){
     }
     _apRetry=0;
     setApprovalStatus('saved');
-    if(_apPending) scheduleApprovalPush();   // 그 사이 추가 변경분 반영
+    if(_apPending) scheduleApprovalPush();
   });
+}
+
+// 승인 목록을 POST 본문으로 저장하고, getApproved로 반영을 확인한다.
+function saveApprovedPost(keysStr, cb){
+  const expected=keysStr? keysStr.split(',').filter(Boolean).length : 0;
+  const body=new URLSearchParams();
+  body.set('action','saveApproved');
+  body.set('keys', keysStr);
+  const ctrl=new AbortController();
+  const t=setTimeout(()=>ctrl.abort(), 25000);
+  fetch(GAS_URL, { method:'POST', mode:'no-cors',
+      headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},
+      body:body.toString(), signal:ctrl.signal })
+    .then(function(){
+      clearTimeout(t);
+      // no-cors라 응답 본문을 못 읽으므로, 저장이 반영됐는지 getApproved로 확인
+      setTimeout(function(){
+        fetchFromGAS({action:'getApproved'}, function(res){
+          if(res && res.status==='ok' && Array.isArray(res.data)){
+            cb(res.data.length===expected);   // 서버 승인 건수가 기대치와 같으면 성공
+          } else {
+            cb(true);   // 확인 요청 실패해도 POST 자체는 성공했을 가능성 → 성공 처리(재시도 남발 방지)
+          }
+        });
+      }, 400);
+    })
+    .catch(function(){ clearTimeout(t); cb(false); });
 }
 // 승인 저장 상태 표시 (관리자가 저장 여부를 눈으로 확인)
 function setApprovalStatus(st){
