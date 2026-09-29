@@ -8,7 +8,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate, max-age=0">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<meta name="version" content="2026-09-24">
+<meta name="version" content="2026-09-28">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>경기도 대학생 천원매점 관리자</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -3513,11 +3513,11 @@ function doUploadSalesFile(input,file){
       // 머리글 행 찾기 (품목명 + 수량)
       let h=-1;
       for(let i=0;i<Math.min(aoa.length,12);i++){
-        const row=(aoa[i]||[]).map(c=>String(c||'').replace(/\s/g,''));
+        const row=Array.from(aoa[i]||[],c=>String(c==null?'':c).replace(/\s/g,''));
         if(row.some(c=>c.indexOf('품목명')!==-1) && row.some(c=>c.indexOf('수량')!==-1)){ h=i; break; }
       }
       if(h===-1){ alert('❌ 판매현황 양식을 인식하지 못했습니다.\n"품목명"과 "수량" 열이 있는 파일인지 확인해주세요.'); input.value=''; return; }
-      const cols=(aoa[h]||[]).map(c=>String(c||'').replace(/\s/g,''));
+      const cols=Array.from(aoa[h]||[],c=>String(c==null?'':c).replace(/\s/g,''));
       const iDate=cols.findIndex(c=>c.indexOf('일자')!==-1);
       const iName=cols.findIndex(c=>c.indexOf('품목명')!==-1);
       const iQty =cols.findIndex(c=>c.indexOf('수량')!==-1);
@@ -3622,6 +3622,8 @@ function uploadOrderFile(input){
     doUploadOrderFile(input,file);
   });
 }
+// ※ 엑셀 행은 빈 칸(병합 셀·빈 열)이 '구멍'으로 들어온다. .map()은 구멍을 건너뛰어
+//   undefined가 남고 findIndex에서 오류가 나므로, 반드시 Array.from으로 빈 칸을 ''로 채운다.
 function doUploadOrderFile(input,file){
   const reader=new FileReader();
   reader.onload=function(e){
@@ -3632,11 +3634,11 @@ function doUploadOrderFile(input,file){
       // 머리글 행 찾기 (제품명 + 발주량)
       let h=-1;
       for(let i=0;i<Math.min(aoa.length,15);i++){
-        const row=(aoa[i]||[]).map(c=>String(c||'').replace(/\s/g,''));
+        const row=Array.from(aoa[i]||[],c=>String(c==null?'':c).replace(/\s/g,''));
         if(row.some(c=>c.indexOf('제품명')!==-1)&&row.some(c=>c.indexOf('발주량')!==-1)){ h=i; break; }
       }
       if(h===-1){ alert('❌ 발주서 양식을 인식하지 못했습니다.\n"제품명"과 "발주량" 열이 있는 파일인지 확인해주세요.'); input.value=''; return; }
-      const cols=(aoa[h]||[]).map(c=>String(c||'').replace(/\s/g,''));
+      const cols=Array.from(aoa[h]||[],c=>String(c==null?'':c).replace(/\s/g,''));
       const iCat=cols.findIndex(c=>c.indexOf('구분')!==-1);
       const iName=cols.findIndex(c=>c.indexOf('제품명')!==-1);
       const iSpec=cols.findIndex(c=>c.indexOf('규격')!==-1);
@@ -3682,9 +3684,15 @@ function doUploadOrderFile(input,file){
       const usedByCat={}, posByCat={};
       for(let i=h+1;i<aoa.length;i++){
         const row=aoa[i]||[];
-        const c=String(row[iCat]||'').trim(); if(c) cat=c;
+        const c=iCat>=0?String(row[iCat]||'').trim():''; if(c) cat=c;
         const raw=String(row[iName]||'').trim();
-        if(!raw||!cat) continue;
+        if(!raw) continue;
+        // '구분' 열이 없거나 비어 있으면 품명으로 대분류를 찾아본다
+        if(!cat || iCat<0){
+          const g=CATALOG.find(function(gg){ return matchItem(gg.c,raw,new Set()); });
+          if(!g){ miss.push(raw); continue; }
+          cat=g.c;
+        }
         if(raw.indexOf('합계')!==-1||cat.indexOf('합계')!==-1) continue;
         const nc=normCat(cat);
         usedByCat[nc]=usedByCat[nc]||new Set();
@@ -3709,6 +3717,11 @@ function doUploadOrderFile(input,file){
           }
         });
         o.items[k]=rec; ok++;
+      }
+      if(!ok){
+        alert('❌ 발주서에서 품목을 하나도 찾지 못했습니다.\n\n"제품명" 열의 품명이 물품원장과 다르거나, 양식이 크게 바뀐 것 같습니다.'
+          +(miss.length?'\n\n인식 못한 예:\n'+miss.slice(0,5).join('\n'):''));
+        input.value=''; return;
       }
       setOrder(o);
       renderOrderTab();
@@ -4166,11 +4179,11 @@ function doUploadStockFile(input,file){
       // 헤더 행 찾기
       let hdr=-1;
       for(let i=0;i<Math.min(aoa.length,15);i++){
-        const row=(aoa[i]||[]).map(c=>String(c||''));
+        const row=Array.from(aoa[i]||[],c=>String(c==null?'':c));
         if(row.some(c=>c.indexOf('품명')!==-1) && row.some(c=>c.indexOf('카테고리')!==-1||c.indexOf('대분류')!==-1)){ hdr=i; break; }
       }
       if(hdr===-1){ alert('❌ 표 형식을 인식하지 못했습니다.\n"카테고리(대분류)" / "품명(소분류)" / "소계" 열이 있는 파일인지 확인해주세요.'); input.value=''; return; }
-      const cols=(aoa[hdr]||[]).map(c=>String(c||''));
+      const cols=Array.from(aoa[hdr]||[],c=>String(c==null?'':c));
       const ci=cols.findIndex(c=>c.indexOf('카테고리')!==-1||c.indexOf('대분류')!==-1);
       const ni=cols.findIndex(c=>c.indexOf('품명')!==-1);
       const si=cols.findIndex(c=>c.indexOf('소계')!==-1);
