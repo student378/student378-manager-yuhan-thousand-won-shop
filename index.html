@@ -8,7 +8,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate, max-age=0">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<meta name="version" content="2026-09-28">
+<meta name="version" content="2026-10-13">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>경기도 대학생 천원매점 관리자</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -215,6 +215,37 @@ tr.waiting-row td{opacity:.62}
 .report-head .rh-sub{font-size:11px;color:var(--gray500);margin-top:3px}
 .empty-note{text-align:center;color:var(--gray500);padding:22px;font-size:12px}
 
+/* 로그인 */
+.login-overlay{position:fixed;inset:0;z-index:900;background:linear-gradient(135deg,#0f172a,#134e4a);display:none;align-items:center;justify-content:center;padding:20px}
+.login-overlay.show{display:flex}
+.login-card{background:#fff;border-radius:16px;width:100%;max-width:360px;padding:26px 22px;box-shadow:0 18px 50px rgba(0,0,0,.35);text-align:center}
+.login-card h2{font-size:17px;font-weight:800;color:var(--primary-dark);margin:8px 0 4px}
+.login-card p{font-size:12px;color:var(--gray500);margin-bottom:14px;line-height:1.6}
+.login-card input{width:100%;padding:11px 12px;border:1.5px solid var(--gray300);border-radius:9px;font-size:15px;font-family:inherit;outline:none;margin-bottom:10px}
+.login-card input:focus{border-color:var(--primary)}
+.login-card button{width:100%;padding:11px;border:none;border-radius:9px;background:var(--primary);color:#fff;font-size:14px;font-weight:800;font-family:inherit;cursor:pointer}
+.login-card button:disabled{background:var(--gray300)}
+.login-msg{font-size:12px;color:var(--red);min-height:18px;margin-top:9px;line-height:1.5;font-weight:600}
+
+/* 재고관리(마감 실사) */
+.formula{display:flex;align-items:stretch;gap:7px;flex-wrap:wrap;margin:4px 0 2px}
+.formula .fb{flex:1;min-width:92px;border-radius:10px;padding:9px 8px;text-align:center;border:2px solid}
+.formula .fb b{display:block;font-size:13px}
+.formula .fb span{font-size:10.5px;opacity:.85;line-height:1.4;display:block;margin-top:2px}
+.formula .op{align-self:center;font-size:20px;font-weight:800;color:var(--gray500)}
+.fb-open{background:#ede9fe;border-color:#8b5cf6;color:#4c1d95}
+.fb-add{background:#dbeafe;border-color:#3b82f6;color:#1e3a8a}
+.fb-close{background:#fef3c7;border-color:#f59e0b;color:#78350f}
+.fb-sold{background:#dcfce7;border-color:#22c55e;color:#14532d}
+.cnt-in{width:66px;padding:5px 6px;border:1.5px solid var(--gray300);border-radius:6px;font-size:12.5px;text-align:right;font-family:inherit;font-weight:700}
+.cnt-in.open{border-color:#8b5cf6;color:#4c1d95}
+.cnt-in.add{border-color:#3b82f6;color:#1e3a8a}
+.cnt-in.close{border-color:#f59e0b;background:#fffbeb;color:#78350f;width:74px}
+.cnt-in.close:placeholder-shown{background:#fff}
+tr.cnt-err td{background:#fef2f2!important}
+tr.cnt-done td{background:#f0fdf4}
+.src-tag{display:block;font-size:9.5px;color:var(--gray500);font-weight:500;margin-top:2px}
+
 @media print{
   .admin-header,.tab-bar,.sign-controls,.hbtn,.loading-bar,.date-filter,.no-print{display:none!important}
   .tab-content{display:none!important;padding:0}
@@ -242,12 +273,14 @@ tr.waiting-row td{opacity:.62}
     <button class="hbtn hbtn-ghost" onclick="loadAll()">🔄 새로고침</button>
     <button class="hbtn hbtn-ghost" title="화면이 최신이 아닌 것 같으면 눌러주세요" onclick="hardReload()">♻️ 화면 버전 갱신</button>
     <button class="hbtn hbtn-green" onclick="exportAllExcel()">📥 전체 엑셀</button>
+    <button class="hbtn hbtn-ghost" id="logoutBtn" onclick="adminLogout()" title="관리자 로그아웃">🔓 로그아웃</button>
   </div>
 </div>
 
 <div class="tab-bar">
   <div class="tab-item active" onclick="switchTab('live')">📡 실시간·승인</div>
   <div class="tab-item" onclick="switchTab('stock')">📦 재고현황</div>
+  <div class="tab-item" onclick="switchTab('count')">🧮 재고관리(마감)</div>
   <div class="tab-item" onclick="switchTab('daily')">📊 일일 판매리포트</div>
   <div class="tab-item" onclick="switchTab('item')">🍱 품목분석</div>
   <div class="tab-item" onclick="switchTab('student')">👤 학생별</div>
@@ -378,6 +411,79 @@ tr.waiting-row td{opacity:.62}
   </div>
 </div>
 
+<!-- ②-1 재고관리(마감 실사) -->
+<div class="tab-content" id="tab-count">
+  <div class="table-panel" style="border-left:4px solid var(--green)">
+    <div class="table-panel-header"><h3>🧮 마감 실사로 오늘 판매량 구하기</h3>
+      <span id="countStateBadge" style="margin-left:auto"></span></div>
+    <div style="padding:12px 13px">
+      <div class="formula">
+        <div class="fb fb-open"><b>① 시작 진열</b><span>오늘 문 열 때<br>진열대 수량</span></div>
+        <div class="op">＋</div>
+        <div class="fb fb-add"><b>② 보충</b><span>운영 중 창고에서<br>꺼내 채운 수량</span></div>
+        <div class="op">－</div>
+        <div class="fb fb-close"><b>③ 마감 잔여</b><span>마감 후 진열대에<br>남은 수량 (직접 셈)</span></div>
+        <div class="op">＝</div>
+        <div class="fb fb-sold"><b>④ 오늘 판매량</b><span>자동 계산</span></div>
+      </div>
+      <div style="font-size:11px;color:var(--gray500);line-height:1.75;margin-top:9px">
+        · <b>③ 마감 잔여만 세어 입력</b>하면 ④가 계산됩니다. ①은 직전 실사의 마감 잔여(없으면 현재 진열 수량 기준 추정)가 미리 채워지며, 실제와 다르면 고쳐 쓰세요.<br>
+        · 마감 잔여 칸을 <b>비워 둔 품목은 계산·반영하지 않습니다</b> (그 품목은 기존 판매 기록 유지).<br>
+        · 「판매량 확정」을 누르면 ④가 그 날짜의 <b>판매실적</b>으로 기록되어 재고현황·일일 리포트·발주 예측에 반영되고, 오늘 날짜면 진열대 수량이 ③으로 맞춰집니다.<br>
+        · 학생이 품목을 고른 신청(간편 신청 모드가 꺼진 날)의 판매는 이미 집계되므로, 그 수량을 뺀 나머지만 판매실적에 더합니다.
+      </div>
+    </div>
+  </div>
+
+  <div class="date-filter no-print">
+    <label>📅 실사 날짜</label>
+    <input type="date" id="countDate" onchange="renderCountTab()">
+    <button class="filter-btn ghost" onclick="countShift(-1)">◀ 전일</button>
+    <button class="filter-btn ghost" onclick="countShift(1)">익일 ▶</button>
+    <button class="filter-btn ghost" onclick="countToday()">오늘</button>
+    <select class="setting-input" id="countCat" style="max-width:150px;padding:5px 9px;font-size:11px" onchange="renderCountTable()"></select>
+    <input class="search-input" id="countSearch" placeholder="품목 검색" oninput="renderCountTable()" style="width:140px">
+    <button class="filter-btn" style="margin-left:auto" onclick="window.print()">🖨️ 실사표 인쇄</button>
+    <button class="filter-btn" onclick="exportCountExcel()">📥 엑셀</button>
+  </div>
+
+  <div class="kpi-grid" id="countKpi"></div>
+
+  <div class="table-panel">
+    <div class="table-panel-header">
+      <h3>📋 품목별 마감 실사표</h3>
+      <span style="font-size:11px;color:var(--gray500)">마감 잔여 칸에서 Enter 를 누르면 다음 품목으로 이동합니다</span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th style="width:34px">연번</th><th>대분류</th><th>품명</th>
+          <th style="width:70px">창고(참고)</th>
+          <th style="width:86px">① 시작 진열</th><th style="width:78px">② 보충</th><th style="width:90px">③ 마감 잔여</th>
+          <th style="width:76px">④ 판매량</th><th style="width:88px">신청 집계</th><th style="width:96px">상태</th>
+        </tr></thead>
+        <tbody id="countBody"></tbody>
+        <tfoot id="countFoot"></tfoot>
+      </table>
+    </div>
+    <div class="no-print" style="padding:12px 13px;display:flex;gap:7px;flex-wrap:wrap;border-top:1px solid var(--gray200)">
+      <button class="save-btn" style="background:var(--gray500)" onclick="saveCountDraft(true)">💾 입력 내용 임시 저장</button>
+      <button class="save-btn" style="background:var(--green)" onclick="confirmCount()">✅ 판매량 확정 → 재고 반영</button>
+      <button class="filter-btn ghost" onclick="fillCountZeroSales()">빈 칸 = 판매 0 으로 채우기</button>
+      <button class="filter-btn ghost" onclick="undoCount()">↩️ 이 날짜 확정 취소</button>
+      <span class="msg-ok" id="msgCount" style="margin:0;align-self:center">✅ 저장되었습니다.</span>
+    </div>
+  </div>
+
+  <div class="table-panel">
+    <div class="table-panel-header"><h3>🗂️ 실사 기록</h3></div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>날짜</th><th style="width:90px">실사 품목</th><th style="width:100px">판매량 합계</th><th style="width:90px">상태</th><th style="width:150px">확정 시각</th><th style="width:70px">보기</th></tr></thead>
+      <tbody id="countHistBody"></tbody>
+    </table></div>
+  </div>
+</div>
+
 <!-- ③ 일일 판매 리포트 -->
 <div class="tab-content" id="tab-daily">
   <div class="date-filter no-print">
@@ -403,13 +509,13 @@ tr.waiting-row td{opacity:.62}
   </div>
   <div id="itemLegend"></div>
   <div class="chart-grid">
-    <div class="chart-panel"><h3>🏷️ 대분류 선택률 (신청자 대비)</h3><div class="chart-wrap"><canvas id="chartCatPick"></canvas></div></div>
+    <div class="chart-panel"><h3>🏷️ 대분류 판매 구성비 (신청 선택 + 판매실적)</h3><div class="chart-wrap"><canvas id="chartCatPick"></canvas></div></div>
     <div class="chart-panel"><h3>🏆 인기 품목 TOP 10</h3><div class="chart-wrap"><canvas id="chartTopItem"></canvas></div></div>
   </div>
   <div class="table-panel">
-    <div class="table-panel-header"><h3>🏷️ 대분류별 선택 현황</h3></div>
+    <div class="table-panel-header"><h3>🏷️ 대분류별 판매 현황</h3><span style="font-size:11px;color:var(--gray500);margin-left:auto">학생 선택 품목 + 업로드·실사 판매실적 합계</span></div>
     <div class="table-wrap"><table>
-      <thead><tr><th>대분류</th><th>선택 인원</th><th>선택률</th><th>입고</th><th>잔여</th><th>인기 품목 1위</th></tr></thead>
+      <thead><tr><th>대분류</th><th>판매 수량</th><th>구성비</th><th>입고</th><th>잔여</th><th>인기 품목 1위</th></tr></thead>
       <tbody id="catPickBody"></tbody>
     </table></div>
   </div>
@@ -512,7 +618,7 @@ tr.waiting-row td{opacity:.62}
     <div class="chart-panel"><h3>💳 결제 방법 비율</h3><div class="chart-wrap"><canvas id="chartStatPay"></canvas></div></div>
   </div>
   <div class="chart-grid">
-    <div class="chart-panel"><h3>🏷️ 대분류 판매 구성비</h3><div class="chart-wrap"><canvas id="chartStatCat"></canvas></div></div>
+    <div class="chart-panel"><h3>🏷️ 대분류 판매 구성비 (신청 선택 + 판매실적)</h3><div class="chart-wrap"><canvas id="chartStatCat"></canvas></div></div>
     <div class="chart-panel"><h3>📅 요일별 평균 신청 인원</h3><div class="chart-wrap"><canvas id="chartStatDow"></canvas></div></div>
   </div>
   <div class="chart-grid">
@@ -933,6 +1039,18 @@ tr.waiting-row td{opacity:.62}
   </div>
 </div>
 
+<div class="login-overlay" id="loginOverlay">
+  <div class="login-card">
+    <div style="font-size:40px">🔒</div>
+    <h2>천원매점 관리자 로그인</h2>
+    <p>구글 스프레드시트 메뉴<br>「🏪 천원매점 → 🔑 관리자 비밀번호 설정」에서 정한 비밀번호를 입력하세요.</p>
+    <input type="password" id="loginPw" placeholder="관리자 비밀번호" autocomplete="current-password"
+      onkeydown="if(event.key==='Enter') doAdminLogin()">
+    <button id="loginBtn" onclick="doAdminLogin()">로그인</button>
+    <div class="login-msg" id="loginMsg"></div>
+  </div>
+</div>
+
 <div class="edit-overlay" id="editOverlay">
   <div class="edit-modal">
     <div class="edit-head">
@@ -977,7 +1095,9 @@ function hardReload(){
 // ══════════════════════════════════════════════════════════════
 const GAS_URL = 'https://script.google.com/macros/s/AKfycbx6tRfMoITiIlgc9m0y238RIw1TOUi-ALUqQgN8FbvkdBo-QajD2-ee65dIhve26ZpKyQ/exec';
 const IS_DEMO = GAS_URL.indexOf('YOUR_DEPLOYMENT_ID') !== -1;
-const ADMIN_PIN = '1000';   // ← 운영 전 반드시 변경
+// ※ 관리자 비밀번호는 더 이상 이 파일에 두지 않습니다.
+//   (이 HTML은 누구나 소스 보기로 열람할 수 있기 때문)
+//   비밀번호는 구글 스프레드시트 메뉴 「🔑 관리자 비밀번호 설정」으로 서버에만 저장합니다.
 const DAY_NAMES = ['일','월','화','수','목','금','토'];
 const COLORS = ['#0f766e','#f97316','#1d4ed8','#22c55e','#f59e0b','#7c3aed','#ef4444','#06b6d4','#ec4899','#84cc16'];
 const PICK_REQUIRED = 4;
@@ -1051,16 +1171,57 @@ const CATALOG = [
    {n:'9초향균 파운더리허브향',m:'애경산업㈜',ins:8,box:10,stock:80}]}
 ];
 
-// ── 인증 ──
-(function(){
-  if(sessionStorage.getItem('yuhan_store_admin')==='1') return;
-  const pin=prompt('🔒 관리자 PIN을 입력하세요:');
-  if(pin!==ADMIN_PIN){
-    document.body.innerHTML='<div style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;flex-direction:column;gap:14px"><div style="font-size:46px">🔒</div><div style="font-size:18px;font-weight:700;color:#134e4a">접근 권한이 없습니다</div><div style="font-size:13px;color:#6b7280">관리자만 접근할 수 있습니다.</div></div>';
-    throw new Error('auth');
-  }
-  sessionStorage.setItem('yuhan_store_admin','1');
-})();
+// ══════════════════════════════════════════════════════════════
+//  관리자 로그인 (서버 토큰 방식)
+//   · 비밀번호는 서버(Apps Script 스크립트 속성 ADMIN_PW)에서만 확인
+//   · 로그인하면 6시간짜리 토큰을 받아 이 탭(sessionStorage)에만 보관
+//   · 모든 관리자 요청에 토큰이 자동으로 붙고, 만료되면 로그인 창이 다시 뜬다
+// ══════════════════════════════════════════════════════════════
+const TOKEN_KEY='yuhan_store_token';
+function getToken(){ try{ return sessionStorage.getItem(TOKEN_KEY)||''; }catch(e){ return ''; } }
+function setToken(t){ try{ if(t) sessionStorage.setItem(TOKEN_KEY,t); else sessionStorage.removeItem(TOKEN_KEY); }catch(e){} }
+let _loginWaiters=[];
+function showLogin(msg){
+  const ov=document.getElementById('loginOverlay');
+  if(!ov) return;
+  ov.classList.add('show');
+  document.getElementById('loginMsg').textContent=msg||'';
+  setTimeout(function(){ const i=document.getElementById('loginPw'); if(i) i.focus(); },50);
+}
+function ensureLogin(cb){
+  if(IS_DEMO || getToken()){ cb(); return; }
+  _loginWaiters.push(cb);
+  showLogin('');
+}
+function doAdminLogin(){
+  const pw=document.getElementById('loginPw').value;
+  if(!pw){ document.getElementById('loginMsg').textContent='비밀번호를 입력하세요.'; return; }
+  const btn=document.getElementById('loginBtn');
+  btn.disabled=true; btn.textContent='확인 중...';
+  fetchFromGAS({action:'login',pw:pw},function(res,err){
+    btn.disabled=false; btn.textContent='로그인';
+    if(err||!res){ document.getElementById('loginMsg').textContent='서버에 연결하지 못했습니다. GAS_URL과 배포 설정을 확인하세요.'; return; }
+    if(res.status!=='ok'){ document.getElementById('loginMsg').textContent=res.message||'로그인에 실패했습니다.'; return; }
+    setToken(res.token);
+    document.getElementById('loginPw').value='';
+    document.getElementById('loginOverlay').classList.remove('show');
+    const w=_loginWaiters; _loginWaiters=[];
+    if(w.length) w.forEach(function(f){ try{ f(); }catch(e){} });
+    else loadAll();          // 토큰 만료 후 다시 로그인한 경우 화면 전체를 새로 받는다
+  });
+}
+let _authAlerted=false;
+function handleAuthExpired(){
+  setToken('');
+  showLogin('로그인 시간이 만료되었거나 권한이 없습니다. 다시 로그인해주세요.');
+}
+function adminLogout(){
+  if(isApprovalBusy() && !confirm('승인 내용이 아직 저장 중입니다. 그래도 로그아웃할까요?')) return;
+  const t=getToken();
+  if(!IS_DEMO && t) fetchFromGAS({action:'logout'},function(){});
+  setToken('');
+  setTimeout(function(){ location.reload(); },300);
+}
 
 const LS = {
   get:(k,d=null)=>{ try{const r=localStorage.getItem('yuhan_st_'+k); return r?JSON.parse(r):d;}catch(e){return d;} },
@@ -1077,6 +1238,7 @@ function catIcon(c){ const g=CATALOG.find(x=>x.c===c); return g?g.icon:'📦'; }
 function nf(n){ return Number(n||0).toLocaleString(); }
 
 // ── 전역 상태 ──
+var lastSig='';   // 실시간 폴링 서명 (물품 수정 후 ''로 비워 강제 갱신)
 let allData=[];
 let approvedSet=new Set(LS.get('approved',[])||[]);
 let charts={};
@@ -1442,7 +1604,9 @@ function daySoldMap(date){
   const basis=getBasis();
   let recs=allData.filter(r=>r.date===date);
   if(basis==='approve') recs=recs.filter(isApproved);
-  return soldMapFrom(recs);
+  // ★ 판매실적(업로드·실사)은 그 날짜 것만 더한다
+  //   (기존: 전체 기간 판매실적이 하루치에 모두 더해져 당일 잔여가 잘못 계산됨)
+  return soldMapFrom(recs,{dateFilter:function(d){ return d===date; }});
 }
 
 // ── 승인 ──
@@ -1501,6 +1665,7 @@ function saveApprovedPost(keysStr, cb){
   const body=new URLSearchParams();
   body.set('action','saveApproved');
   body.set('keys', keysStr);
+  body.set('token', getToken());
   const ctrl=new AbortController();
   const t=setTimeout(()=>ctrl.abort(), 25000);
   fetch(GAS_URL, { method:'POST', mode:'no-cors',
@@ -1513,6 +1678,8 @@ function saveApprovedPost(keysStr, cb){
         fetchFromGAS({action:'getApproved'}, function(res){
           if(res && res.status==='ok' && Array.isArray(res.data)){
             cb(res.data.length===expected);   // 서버 승인 건수가 기대치와 같으면 성공
+          } else if(res && res.status==='auth'){
+            cb(false);  // 로그인 만료 — 저장되지 않았으므로 실패로 처리(재로그인 후 재시도)
           } else {
             cb(true);   // 확인 요청 실패해도 POST 자체는 성공했을 가능성 → 성공 처리(재시도 남발 방지)
           }
@@ -1553,6 +1720,7 @@ function setSalesLog(m){
 function salesLogMap(dateFilter){
   const log=getSalesLog(); const m={};
   for(const d in log){
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(d)) continue;   // '_meta'(등록 시각 기록) 등 날짜가 아닌 키 제외
     if(dateFilter && !dateFilter(d)) continue;
     const day=log[d]||{};
     for(const k in day) m[k]=(m[k]||0)+Number(day[k]||0);
@@ -1587,9 +1755,11 @@ function fetchFromGAS(params,cb){
     clearTimeout(timer);
     delete window[name];
     if(script.parentNode) script.parentNode.removeChild(script);
+    if(data && data.status==='auth' && params.action!=='login') handleAuthExpired();
     cb(data,err);
   }
   const timer=setTimeout(function(){ finish(null,'timeout'); },20000);
+  if(params.action!=='login' && getToken()) params=Object.assign({},params,{token:getToken()});
   window[name]=function(data){ finish(data,null); };
   // ★ 스크립트 로드 실패(권한 오류·잘못된 URL·404)를 즉시 감지
   script.onerror=function(){ finish(null,'network'); };
@@ -1668,6 +1838,7 @@ function loadAll(){
       if(d.bundle) LS.set('bundle',d.bundle);
       if(d.simple) LS.set('simple',d.simple);
       if(d.salesLog) LS.set('sales_log',d.salesLog);
+      if(d.stocktake) LS.set('stocktake',d.stocktake);
       // ★ 물품원장(입고 수량)을 서버 값으로 통일 — 어느 PC에서 열어도 같은 재고
       if(d.stock) LS.set('stock_override',d.stock);
       if(d.manualSoldout) LS.set('manual_soldout',d.manualSoldout);
@@ -1728,12 +1899,13 @@ function showGasError(isNetwork,srvMsg){
 // ══════════════════════════════════════════════════════════════
 //  탭
 // ══════════════════════════════════════════════════════════════
-const TAB_IDS=['live','stock','daily','item','student','dept','stats','sign','list','order','settings'];
+const TAB_IDS=['live','stock','count','daily','item','student','dept','stats','sign','list','order','settings'];
 function switchTab(id){
   document.querySelectorAll('.tab-item').forEach((el,i)=>el.classList.toggle('active',TAB_IDS[i]===id));
   document.querySelectorAll('.tab-content').forEach(el=>el.classList.remove('active'));
   document.getElementById('tab-'+id).classList.add('active');
   if(id==='stock') renderStockTab();
+  else if(id==='count') renderCountTab();
   else if(id==='daily') renderDaily();
   else if(id==='item') renderItemTab();
   else if(id==='student') renderStudentTab();
@@ -1756,6 +1928,7 @@ function renderAll(){
   renderLive();
   renderLiveList();
   renderStockTab();
+  renderCountTab();
   const today=fDate(new Date());
   if(!document.getElementById('dailyDate').value) document.getElementById('dailyDate').value=today;
   renderDaily();
@@ -1859,7 +2032,7 @@ function renderLiveList(){
   const day=allData.filter(r=>r.date===selectedLiveDate).sort((a,b)=>String(a.applyTime)>String(b.applyTime)?1:-1);
   document.getElementById('liveListCount').textContent='총 '+day.length+'명 · 물량 '+(day.length*PICK_REQUIRED)+'개';
   if(!day.length){
-    tbody.innerHTML='<tr><td colspan="9" class="empty-note">해당 날짜의 신청 데이터가 없습니다.</td></tr>';
+    tbody.innerHTML='<tr><td colspan="10" class="empty-note">해당 날짜의 신청 데이터가 없습니다.</td></tr>';
     return;
   }
   tbody.innerHTML=day.map(function(r,i){
@@ -1875,10 +2048,13 @@ function renderLiveList(){
       +'<td>'+pay+'</td>'
       +'<td>'+pickup+'</td>'
       +'<td>'+picksHtml(r)+'</td>'
-      +'<td style="text-align:center"><button class="filter-btn" style="padding:3px 9px;'+(ap?'background:var(--gray300);color:var(--gray500)':'background:var(--purple)')+'" onclick="openEdit(\''+esc(r.date)+'\',\''+esc(r.studentId)+'\')">✏️</button></td>'
+      +'<td style="text-align:center"><button class="filter-btn edit-btn" style="padding:3px 9px;'+(ap?'background:var(--gray300);color:var(--gray500)':'background:var(--purple)')+'" data-date="'+esc(r.date)+'" data-sid="'+esc(r.studentId)+'">✏️</button></td>'
       +'<td style="text-align:center"><input type="checkbox" class="approval-cb" data-date="'+esc(r.date)+'" data-sid="'+esc(r.studentId)+'"'+(ap?' checked':'')+'></td>'
       +'</tr>';
   }).join('');
+  tbody.querySelectorAll('.edit-btn').forEach(function(b){
+    b.addEventListener('click',function(){ openEdit(this.dataset.date,this.dataset.sid); });
+  });
   tbody.querySelectorAll('.approval-cb').forEach(function(cb){
     cb.addEventListener('change',function(){ toggleApproval(this.dataset.date,this.dataset.sid); });
   });
@@ -2295,7 +2471,7 @@ function renderDaily(){
       + deptRows.map((e,i)=>'<tr><td>'+(i+1)+'</td><td>'+esc(e[0])+'</td><td><b>'+e[1]+'</b></td><td>'+(e[1]*PICK_REQUIRED)+'</td></tr>').join('')
       +'</tbody></table></div></div>'
     +'<div class="table-panel"><div class="table-panel-header"><h3>🧾 당일 신청 명세</h3></div><div class="table-wrap"><table>'
-      +'<thead><tr><th style="width:36px">#</th><th>학과</th><th>학번</th><th>성명</th><th style="width:66px">시간</th><th>선택 물품</th><th style="width:56px">상태</th></tr></thead><tbody>'
+      +'<thead><tr><th style="width:36px">#</th><th>학과</th><th>학번</th><th>성명</th><th style="width:66px">시간</th><th>선택 물품</th><th style="width:56px">수령</th><th style="width:56px">상태</th></tr></thead><tbody>'
       + st.day.map(function(r,i){
           return '<tr><td>'+(i+1)+'</td><td>'+esc(r.dept)+'</td><td>'+esc(r.studentId)+'</td><td><b>'+esc(r.name)+'</b></td><td>'+esc(r.applyTime)+'</td><td>'+picksHtml(r)+'</td>'
             +'<td>'+(r.pickupMethod==='드리미서비스'?'<span class="badge badge-purple">드리미</span>':'<span class="badge badge-gray">직접</span>')+'</td>'
@@ -2333,17 +2509,26 @@ function renderItemTab(){
     catMap[p.cat]=(catMap[p.cat]||0)+1;
     itemMap[itemKey(p.cat,p.item)]=(itemMap[itemKey(p.cat,p.item)]||0)+1;
   }));
+  // ★ 판매실적(엑셀 업로드·마감 실사)도 기간 안의 것은 함께 집계
+  //   (기존: 간편 신청 모드에서는 학생 선택 품목이 없어 이 탭이 전부 0으로 보였음)
+  const lg=salesLogMap(function(d){ return (!from||d>=from)&&(!to||d<=to); });
+  for(const k in lg){
+    const c=k.split('|')[0];
+    catMap[c]=(catMap[c]||0)+lg[k];
+    itemMap[k]=(itemMap[k]||0)+lg[k];
+  }
+  const catTotal=Object.values(catMap).reduce((a,b)=>a+b,0);
 
   const catRows=CATALOG.map(function(g){
     const cnt=catMap[g.c]||0;
     const roll=catRollup().find(x=>x.cat===g.c)||{inQty:0,remain:0};
     let top='—',topN=0;
     g.items.forEach(function(it){ const v=itemMap[itemKey(g.c,it.n)]||0; if(v>topN){topN=v;top=it.n+' ('+v+')';} });
-    return {cat:g.c,cnt:cnt,rate:people?Math.round(cnt/people*100):0,inQty:roll.inQty,remain:roll.remain,top:top};
+    return {cat:g.c,cnt:cnt,rate:catTotal?Math.round(cnt/catTotal*100):0,inQty:roll.inQty,remain:roll.remain,top:top};
   }).sort((a,b)=>b.cnt-a.cnt);
 
   safeChart('chartCatPick',{type:'bar',data:{labels:catRows.map(r=>r.cat),
-    datasets:[{label:'선택률(%)',data:catRows.map(r=>r.rate),backgroundColor:catRows.map(r=>catColor(r.cat)),borderRadius:5}]},
+    datasets:[{label:'구성비(%)',data:catRows.map(r=>r.rate),backgroundColor:catRows.map(r=>catColor(r.cat)),borderRadius:5}]},
     options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{beginAtZero:true,max:100}}}});
 
   const top=Object.entries(itemMap).sort((a,b)=>b[1]-a[1]).slice(0,10);
@@ -2351,8 +2536,8 @@ function renderItemTab(){
     datasets:[{label:'판매',data:top.map(e=>e[1]),backgroundColor:top.map(e=>catColor(e[0].split('|')[0])),borderRadius:5}]},
     options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{beginAtZero:true},y:{ticks:{font:{size:9}}}}}});
 
-  document.getElementById('catPickBody').innerHTML= people? catRows.map(function(r){
-    return '<tr><td>'+catBadge(r.cat)+'</td><td><b>'+r.cnt+'</b>명</td>'
+  document.getElementById('catPickBody').innerHTML= catTotal? catRows.map(function(r){
+    return '<tr><td>'+catBadge(r.cat)+'</td><td><b>'+nf(r.cnt)+'</b>개</td>'
       +'<td><div style="display:flex;align-items:center;gap:6px"><div class="progress-bar-sm" style="flex:1"><div class="progress-fill-sm" style="width:'+r.rate+'%;background:var(--primary)"></div></div><span style="font-size:10px;font-weight:700">'+r.rate+'%</span></div></td>'
       +'<td>'+nf(r.inQty)+'</td><td>'+nf(r.remain)+'</td><td>'+esc(r.top)+'</td></tr>';
   }).join('') : '<tr><td colspan="6" class="empty-note">해당 기간의 데이터가 없습니다.</td></tr>';
@@ -2623,6 +2808,11 @@ function renderStats(){
     (r.picks||[]).forEach(p=>{ cats[p.cat]=(cats[p.cat]||0)+1; });
   });
   dates.forEach(function(d){ const w=new Date(d+'T00:00:00').getDay(); dowDays[w]=(dowDays[w]||0)+1; });
+  {
+    const sf=document.getElementById('statFrom').value, st2=document.getElementById('statTo').value;
+    const lg=salesLogMap(function(d){ return (!sf||d>=sf)&&(!st2||d<=st2); });
+    for(const k in lg){ const c=k.split('|')[0]; cats[c]=(cats[c]||0)+lg[k]; }
+  }
 
   const people=recs.length;
   const uniq=Object.keys(students).length;
@@ -2881,6 +3071,282 @@ function exportListCSV(){
   a.download='천원매점_신청목록_'+fDate(new Date())+'.csv';
   a.click();
   URL.revokeObjectURL(a.href);
+}
+
+
+// ══════════════════════════════════════════════════════════════
+//  ②-1 재고관리(마감 실사)
+//   ① 시작 진열 + ② 보충 − ③ 마감 잔여 = ④ 오늘 판매량
+//   저장 구조  stocktake = { 'YYYY-MM-DD': {
+//       items:{ '대분류|품명': {open, add, close} },   // 입력값 (close 가 '' 이면 미실사)
+//       confirmed, confirmedAt, savedAt,
+//       sold:{ key: 판매량 }, logged:{ key: 판매실적에 더한 수량 },
+//       prevLog:{ ... }          // 확정 직전 그 날짜 판매실적 (확정 취소용)
+//   } }
+// ══════════════════════════════════════════════════════════════
+function getStocktake(){ return LS.get('stocktake',{}) || {}; }
+function setStocktake(m, sync){
+  LS.set('stocktake',m);
+  if(sync && !IS_DEMO) fetchFromGAS({action:'saveSettings',stocktake:JSON.stringify(m)},function(res,err){
+    if(err||!res||res.status!=='ok') alert('⚠️ 실사 기록을 서버에 저장하지 못했습니다. 이 PC에는 남아 있으니 잠시 후 「임시 저장」을 다시 눌러주세요.');
+  });
+}
+function countDate(){ const el=document.getElementById('countDate'); if(!el.value) el.value=fDate(new Date()); return el.value; }
+function countShift(n){ const el=document.getElementById('countDate'); const d=new Date(countDate()+'T00:00:00'); d.setDate(d.getDate()+n); el.value=fDate(d); renderCountTab(); }
+function countToday(){ document.getElementById('countDate').value=fDate(new Date()); renderCountTab(); }
+
+// 그날 학생 신청(품목 선택)으로 이미 집계된 판매 — 판매실적은 제외
+function appSoldOn(date){
+  let recs=allData.filter(r=>r.date===date);
+  if(getBasis()==='approve') recs=recs.filter(isApproved);
+  return soldMapFrom(recs,{skipLog:true});
+}
+// 직전 확정 실사의 마감 잔여
+function prevClose(date,key){
+  const st=getStocktake();
+  const ds=Object.keys(st).filter(d=>d<date && st[d].confirmed).sort();
+  for(let i=ds.length-1;i>=0;i--){
+    const it=(st[ds[i]].items||{})[key];
+    if(it && it.close!=='' && it.close!==undefined && it.close!==null) return {v:Number(it.close),from:ds[i]};
+  }
+  return null;
+}
+// 품목별 행 데이터
+function countRows(){
+  const date=countDate();
+  const st=getStocktake(); const rec=st[date]||{items:{}};
+  const app=appSoldOn(date);
+  const logDay=(getSalesLog()[date])||{};
+  const rows=stockRows();
+  return rows.map(function(r){
+    const saved=(rec.items||{})[r.key]||{};
+    let open, src;
+    if(saved.open!==undefined && saved.open!==''){ open=Number(saved.open); src='입력값'; }
+    else {
+      const pc=prevClose(date,r.key);
+      if(pc){ open=pc.v; src=pc.from.slice(5)+' 마감'; }
+      else {
+        // 현재 진열 수량 + 그날 이미 기록된 판매(이미 진열에서 빠졌으므로 되돌려 더함) → 시작 진열 추정
+        const already=(rec.confirmed?0:Number(logDay[r.key]||0))+Number(app[r.key]||0);
+        open=r.shelf+(rec.confirmed?Number((rec.sold||{})[r.key]||0):already);
+        src='현재 진열 기준 추정';
+      }
+    }
+    const add=(saved.add===undefined||saved.add==='')?0:Number(saved.add);
+    const hasClose=(saved.close!==undefined && saved.close!=='' && saved.close!==null);
+    const close=hasClose?Number(saved.close):null;
+    const sold=hasClose?(open+add-close):null;
+    return Object.assign({},r,{open:open,src:src,add:add,close:close,hasClose:hasClose,soldCalc:sold,
+      appSold:Number(app[r.key]||0),err:(hasClose&&sold<0)});
+  });
+}
+function renderCountTab(){
+  countDate();
+  const sel=document.getElementById('countCat');
+  if(sel && !sel.options.length){
+    sel.innerHTML='<option value="">전체 대분류</option>'+CATALOG.map(g=>'<option value="'+esc(g.c)+'">'+g.icon+' '+esc(g.c)+'</option>').join('');
+  }
+  renderCountTable();
+  renderCountHist();
+}
+function renderCountTable(){
+  const date=countDate();
+  const rec=getStocktake()[date]||{};
+  const all=countRows();
+  const q=(document.getElementById('countSearch').value||'').trim().toLowerCase();
+  const cf=document.getElementById('countCat').value;
+  let rows=all;
+  if(cf) rows=rows.filter(r=>r.cat===cf);
+  if(q) rows=rows.filter(r=>(r.name+r.maker+r.cat).toLowerCase().indexOf(q)!==-1);
+
+  const counted=all.filter(r=>r.hasClose);
+  const errs=all.filter(r=>r.err);
+  const soldSum=counted.filter(r=>!r.err).reduce((a,r)=>a+r.soldCalc,0);
+  document.getElementById('countKpi').innerHTML=
+     kpi('📝',counted.length+' / '+all.length,'실사 입력 품목',true)
+    +kpi('🛒',nf(soldSum),'오늘 판매량 합계(개)')
+    +kpi('🟣',nf(counted.reduce((a,r)=>a+r.open+r.add,0)),'시작 진열 + 보충 (입력 품목)')
+    +kpi('🟡',nf(counted.reduce((a,r)=>a+r.close,0)),'마감 잔여 합계')
+    +kpi(errs.length?'⛔':'✅',errs.length,'계산 오류(판매량 음수)');
+  const badge=document.getElementById('countStateBadge');
+  if(badge) badge.innerHTML = rec.confirmed
+    ? '<span class="badge badge-green">✅ '+esc(date)+' 확정됨 · '+esc(rec.confirmedAt||'')+'</span>'
+    : (counted.length?'<span class="badge badge-amber">✏️ 입력 중 (미확정)</span>':'<span class="badge badge-gray">입력 전</span>');
+
+  document.getElementById('countBody').innerHTML = rows.length ? rows.map(function(r){
+    const soldTxt = !r.hasClose ? '<span style="color:var(--gray300)">—</span>'
+      : (r.err ? '<b style="color:var(--red)">'+r.soldCalc+'</b>' : '<b style="color:var(--green);font-size:14px">'+r.soldCalc+'</b>');
+    let state;
+    if(!r.hasClose) state='<span class="badge badge-gray">미입력</span>';
+    else if(r.err) state='<span class="badge badge-red">마감이 더 많음</span>';
+    else if(r.appSold>r.soldCalc) state='<span class="badge badge-amber">신청보다 적음</span>';
+    else state='<span class="badge badge-green">계산됨</span>';
+    return '<tr class="'+(r.err?'cnt-err':(r.hasClose?'cnt-done':''))+'">'
+      +'<td>'+r.no+'</td><td>'+catBadge(r.cat)+'</td><td>'+esc(r.name)+'<span class="src-tag">'+esc(r.maker)+'</span></td>'
+      +'<td style="color:var(--blue);font-weight:700">'+nf(r.store)+'</td>'
+      +'<td><input type="number" min="0" class="cnt-in open" data-k="'+esc(r.key)+'" data-f="open" value="'+r.open+'"><span class="src-tag">'+esc(r.src)+'</span></td>'
+      +'<td><input type="number" min="0" class="cnt-in add" data-k="'+esc(r.key)+'" data-f="add" value="'+(r.add||'')+'" placeholder="0"></td>'
+      +'<td><input type="number" min="0" class="cnt-in close" data-k="'+esc(r.key)+'" data-f="close" value="'+(r.hasClose?r.close:'')+'" placeholder="셈"></td>'
+      +'<td style="text-align:center">'+soldTxt+'</td>'
+      +'<td style="text-align:center;color:var(--gray500)">'+(r.appSold?r.appSold+'개':'—')+'</td>'
+      +'<td>'+state+'</td></tr>';
+  }).join('') : '<tr><td colspan="10" class="empty-note">조건에 맞는 품목이 없습니다.</td></tr>';
+  const t=rows.reduce((a,r)=>({o:a.o+r.open,ad:a.ad+r.add,c:a.c+(r.hasClose?r.close:0),s:a.s+(r.hasClose&&!r.err?r.soldCalc:0)}),{o:0,ad:0,c:0,s:0});
+  document.getElementById('countFoot').innerHTML='<tr><td colspan="4">합계 (표시된 '+rows.length+'개 품목)</td><td>'+nf(t.o)+'</td><td>'+nf(t.ad)+'</td><td>'+nf(t.c)+'</td><td style="text-align:center">'+nf(t.s)+'</td><td colspan="2"></td></tr>';
+
+  const inputs=[...document.querySelectorAll('#countBody .cnt-in')];
+  inputs.forEach(function(inp){
+    inp.addEventListener('change',function(){
+      const k=this.dataset.k, f=this.dataset.f, v=this.value;
+      // Tab 키로 다음 칸에 갔을 때도 표를 다시 그린 뒤 그 칸에 커서를 돌려준다
+      setTimeout(function(){
+        const a=document.activeElement;
+        const ak=a&&a.dataset?a.dataset.k:null, af=a&&a.dataset?a.dataset.f:null;
+        setCountField(k,f,v);
+        if(ak){ const el=document.querySelector('#countBody .cnt-in[data-k="'+CSS.escape(ak)+'"][data-f="'+af+'"]'); if(el){ el.focus(); try{el.select();}catch(e){} } }
+      },0);
+    });
+    if(inp.dataset.f==='close') inp.addEventListener('keydown',function(e){
+      if(e.key!=='Enter') return;
+      e.preventDefault();
+      const closes=inputs.filter(x=>x.dataset.f==='close');
+      const i=closes.indexOf(this);
+      setCountField(this.dataset.k,'close',this.value);
+      const next=document.querySelectorAll('#countBody .cnt-in.close')[i+1];
+      if(next){ next.focus(); next.select(); }
+    });
+  });
+}
+function setCountField(key,field,val){
+  const date=countDate();
+  const st=getStocktake();
+  st[date]=st[date]||{items:{}};
+  st[date].items=st[date].items||{};
+  const it=st[date].items[key]||{};
+  const v=String(val).trim();
+  if(v!=='' && (!isFinite(Number(v))||Number(v)<0)){ alert('0 이상의 숫자를 입력하세요.'); renderCountTable(); return; }
+  it[field]=(v===''?'':Math.floor(Number(v)));
+  // 시작 진열을 처음 손대는 순간에도 현재 보이는 값을 함께 고정해 둔다
+  if(it.open===undefined || it.open===''){
+    const row=countRows().find(r=>r.key===key); if(row) it.open=row.open;
+  }
+  st[date].items[key]=it;
+  st[date].savedAt=fDate(new Date())+' '+new Date().toTimeString().slice(0,5);
+  setStocktake(st,false);   // 이 PC에 즉시 보관, 서버는 「임시 저장」·「확정」 때
+  renderCountTable();
+}
+function saveCountDraft(showMsgFlag){
+  setStocktake(getStocktake(),true);
+  if(showMsgFlag) showMsg('msgCount');
+}
+function fillCountZeroSales(){
+  const date=countDate();
+  const rows=countRows().filter(r=>!r.hasClose);
+  if(!rows.length){ alert('빈 칸이 없습니다.'); return; }
+  if(!confirm('마감 잔여가 비어 있는 '+rows.length+'개 품목을 「판매 0」(마감 잔여 = 시작 진열 + 보충)으로 채웁니다.\n실제로 세지 않은 품목이 판매 0으로 기록될 수 있으니, 정말 팔리지 않은 품목만 남았을 때 사용하세요.\n\n계속할까요?')) return;
+  const st=getStocktake(); st[date]=st[date]||{items:{}}; st[date].items=st[date].items||{};
+  rows.forEach(function(r){ st[date].items[r.key]=Object.assign({},st[date].items[r.key]||{},{open:r.open,add:r.add,close:r.open+r.add}); });
+  setStocktake(st,false); renderCountTable();
+}
+function confirmCount(){
+  const date=countDate();
+  const today=fDate(new Date());
+  if(date>today){ alert('미래 날짜는 확정할 수 없습니다.'); return; }
+  const rows=countRows();
+  const counted=rows.filter(r=>r.hasClose);
+  if(!counted.length){ alert('마감 잔여를 입력한 품목이 없습니다.'); return; }
+  const errs=counted.filter(r=>r.err);
+  if(errs.length){
+    alert('⛔ 판매량이 음수인 품목이 '+errs.length+'개 있습니다.\n(마감 잔여가 시작 진열 + 보충보다 많음)\n\n'+errs.slice(0,6).map(r=>'· '+r.name+' : '+r.open+' + '+r.add+' − '+r.close).join('\n')+'\n\n시작 진열 또는 보충 수량을 확인해 고쳐주세요.');
+    return;
+  }
+  const st=getStocktake();
+  const rec=st[date]||{items:{}};
+  const log=getSalesLog();
+  // 확정 전 그 날짜 판매실적 (다시 확정할 때도 '처음 확정 전' 상태를 기준으로 삼는다)
+  const prevLog = rec.confirmed ? JSON.parse(JSON.stringify(rec.prevLog||{})) : JSON.parse(JSON.stringify(log[date]||{}));
+  const base = JSON.parse(JSON.stringify(prevLog));
+  const hadUpload = !rec.confirmed && Object.keys(log[date]||{}).length>0;
+  const sold={}, logged={}; const fewer=[];
+  counted.forEach(function(r){
+    sold[r.key]=r.soldCalc;
+    const extra=Math.max(0, r.soldCalc - r.appSold);   // 학생 신청으로 이미 잡힌 수량은 빼고 더한다
+    logged[r.key]=extra;
+    if(r.appSold>r.soldCalc) fewer.push(r);
+  });
+  const total=counted.reduce((a,r)=>a+r.soldCalc,0);
+  let msg='✅ '+date+' 마감 실사를 확정합니다.\n\n· 실사 품목: '+counted.length+'개\n· 오늘 판매량 합계: '+nf(total)+'개';
+  if(hadUpload) msg+='\n\n⚠️ 이 날짜에는 이미 업로드한 판매실적이 있습니다.\n실사한 '+counted.length+'개 품목은 실사 결과로 바뀌고, 나머지 품목은 그대로 둡니다.';
+  if(fewer.length) msg+='\n\n⚠️ 실사 판매량이 학생 신청 집계보다 적은 품목 '+fewer.length+'개 — 판매실적에는 0으로 더해집니다:\n'+fewer.slice(0,5).map(r=>'· '+r.name+' (실사 '+r.soldCalc+' / 신청 '+r.appSold+')').join('\n');
+  msg+= (date===today) ? '\n\n확정하면 진열대 수량이 마감 잔여로 맞춰집니다.' : '\n\n※ 지난 날짜라 진열대 수량은 바꾸지 않습니다.';
+  if(!confirm(msg)) return;
+
+  // ① 판매실적 반영 (실사 품목만 교체, 나머지 유지)
+  const day=base;
+  counted.forEach(function(r){ if(logged[r.key]>0) day[r.key]=logged[r.key]; else delete day[r.key]; });
+  if(Object.keys(day).length) log[date]=day; else delete log[date];
+  log['_meta']=log['_meta']||{};
+  const stamp=fDate(new Date())+' '+new Date().toTimeString().slice(0,5);
+  if(log[date]) log['_meta'][date]=stamp+' (재고 실사)';
+  setSalesLog(log);
+
+  // ② 오늘이면 진열 수량을 마감 잔여로 맞춘다 (판매 반영 후 다시 계산)
+  if(date===today){
+    const dq=getDisplayQty();
+    const now=stockRows();
+    counted.forEach(function(r){
+      const row=now.find(x=>x.key===r.key); if(!row) return;
+      dq[r.key]=shelfSnap(row, Math.min(r.close,row.remain));
+    });
+    setDisplayQty(dq);
+  }
+  // ③ 실사 기록
+  rec.prevLog=prevLog;
+  rec.confirmed=true; rec.confirmedAt=stamp; rec.sold=sold; rec.logged=logged;
+  st[date]=rec;
+  setStocktake(st,true);
+  showMsg('msgCount');
+  renderCountTab(); renderStockTab(); renderLive(); renderDaily(); renderItemTab();
+  alert('✅ 확정 완료\n\n'+date+' 판매량 '+nf(total)+'개를 판매실적에 반영했습니다.'+(date===today?'\n진열대 수량을 마감 잔여로 맞췄습니다.':''));
+}
+function undoCount(){
+  const date=countDate();
+  const st=getStocktake(); const rec=st[date];
+  if(!rec||!rec.confirmed){ alert(date+' 에 확정된 실사가 없습니다.'); return; }
+  if(!confirm(date+' 실사 확정을 취소합니다.\n판매실적은 확정 전 상태로 되돌리고, 입력한 실사 숫자는 남겨 둡니다.\n※ 진열대 수량은 되돌리지 않으니 재고현황 탭에서 확인하세요.\n\n계속할까요?')) return;
+  const log=getSalesLog();
+  if(rec.prevLog && Object.keys(rec.prevLog).length) log[date]=rec.prevLog; else delete log[date];
+  if(log['_meta']) { if(log[date]) log['_meta'][date]=(log['_meta'][date]||'').replace(' (재고 실사)',''); else delete log['_meta'][date]; }
+  setSalesLog(log);
+  rec.confirmed=false; delete rec.confirmedAt; delete rec.sold; delete rec.logged; delete rec.prevLog;
+  st[date]=rec; setStocktake(st,true);
+  renderCountTab(); renderStockTab(); renderLive(); renderDaily(); renderItemTab();
+}
+function renderCountHist(){
+  const st=getStocktake();
+  const ds=Object.keys(st).filter(d=>/^\d{4}-\d{2}-\d{2}$/.test(d)).sort().reverse();
+  const body=document.getElementById('countHistBody'); if(!body) return;
+  body.innerHTML = ds.length ? ds.map(function(d){
+    const r=st[d]; const items=r.items||{};
+    const n=Object.keys(items).filter(k=>items[k].close!==''&&items[k].close!==undefined).length;
+    const sum=r.sold?Object.values(r.sold).reduce((a,b)=>a+Number(b||0),0):null;
+    return '<tr><td><b>'+esc(d)+'</b></td><td>'+n+'개</td><td>'+(sum===null?'—':nf(sum)+'개')+'</td>'
+      +'<td>'+(r.confirmed?'<span class="badge badge-green">확정</span>':'<span class="badge badge-amber">입력 중</span>')+'</td>'
+      +'<td style="font-size:11px;color:var(--gray500)">'+esc(r.confirmedAt||r.savedAt||'')+'</td>'
+      +'<td><button class="filter-btn ghost cnt-view" data-d="'+esc(d)+'" style="padding:3px 9px">열기</button></td></tr>';
+  }).join('') : '<tr><td colspan="6" class="empty-note">아직 실사 기록이 없습니다.</td></tr>';
+  body.querySelectorAll('.cnt-view').forEach(function(b){
+    b.addEventListener('click',function(){ document.getElementById('countDate').value=this.dataset.d; renderCountTab(); window.scrollTo(0,0); });
+  });
+}
+function exportCountExcel(){ ensureXLSX(function(ok){ if(!ok){alert("❌ 엑셀 모듈을 불러오지 못했습니다.\n인터넷 연결을 확인한 뒤 새로고침해주세요.");return;} exportCountExcel_(); }); }
+function exportCountExcel_(){
+  const date=countDate();
+  const head=['연번','대분류','제조사','품명','창고(참고)','시작 진열','보충','마감 잔여','판매량','신청 집계'];
+  const body=countRows().map(r=>[r.no,r.cat,r.maker,r.name,r.store,r.open,r.add,r.hasClose?r.close:'',r.hasClose?r.soldCalc:'',r.appSold]);
+  const wb=XLSX.utils.book_new();
+  aoaSheet('마감실사',[['천원매점 마감 실사표 ('+date+')'],['판매량 = 시작 진열 + 보충 − 마감 잔여'],[],head].concat(body),wb);
+  XLSX.writeFile(wb,'천원매점_마감실사_'+date+'.xlsx');
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -3957,9 +4423,12 @@ function renderOperDays(){
       +'<td style="font-weight:700;color:'+(plan.limit>0&&rem===0?'var(--red)':'var(--green)')+'">'+(plan.limit>0?rem+'명':'—')+'</td>'
       +'<td>'+(plan.custom?'<span class="badge badge-teal">설정</span>':'<span class="badge badge-gray">기본</span>')+'</td>'
       +'<td><div style="display:flex;align-items:center;gap:6px"><div class="progress-bar-sm" style="flex:1"><div class="progress-fill-sm" style="width:'+pct+'%;background:'+(pct>=100?'var(--red)':pct>=70?'var(--orange)':'var(--green)')+'"></div></div><span style="font-size:10px;font-weight:700">'+pct+'%</span></div></td>'
-      +'<td><button class="filter-btn" style="background:var(--red);padding:3px 9px" onclick="removeOperDay(\''+esc(d)+'\')">삭제</button></td>'
+      +'<td><button class="filter-btn opday-del" style="background:var(--red);padding:3px 9px" data-d="'+esc(d)+'">삭제</button></td>'
       +'</tr>';
   }).join('');
+  body.querySelectorAll('.opday-del').forEach(function(b){
+    b.addEventListener('click',function(){ removeOperDay(this.dataset.d); });
+  });
 }
 
 function addOperDay(){
@@ -4262,12 +4731,16 @@ function seedDemo(){
 // ══════════════════════════════════════════════════════════════
 document.addEventListener('DOMContentLoaded',function(){
   document.getElementById('dailyDate').value=fDate(new Date());
+  if(IS_DEMO){ const b=document.getElementById('logoutBtn'); if(b) b.style.display='none'; }
+  ensureLogin(startApp);   // ★ 로그인(서버 확인) 후에만 데이터를 불러온다
+});
+function startApp(){
   loadAll();
   // ── 실시간 반영 (최대 속도) ──
   //  1) 데모: storage 이벤트로 학생 신청 즉시 반영 (지연 0초)
   //  2) GAS : 실시간 탭에서 5초마다 신청내역만 가볍게 재조회
   //  3) 창을 다시 활성화하면 즉시 갱신
-  let liveBusy=false, liveFailCount=0, livePoll=null, lastSig='';
+  let liveBusy=false, liveFailCount=0, livePoll=null;
 
   function refreshLiveOnly(){
     if(liveBusy) return;
@@ -4285,6 +4758,7 @@ document.addEventListener('DOMContentLoaded',function(){
     // ★ 경량 폴링: 먼저 건수(ping)만 확인하고, 늘었을 때만 전체(getAll)를 받는다
     liveBusy=true;
     fetchFromGAS({action:'ping'},function(res,err){
+      if(res && res.status==='auth'){ liveBusy=false; return; }   // 로그인 창이 이미 떠 있음
       if(err||!res||res.status!=='ok'){
         liveBusy=false;
         setGasStatus(false);
@@ -4370,9 +4844,9 @@ document.addEventListener('DOMContentLoaded',function(){
   livePoll=setInterval(refreshLiveOnly,4000);
   // 그 외 데이터(설정·재고)는 3분 주기로만 전체 재조회
   setInterval(function(){
-    if(!document.hidden && !document.getElementById('tab-live').classList.contains('active')) loadAll();
+    if(!document.hidden && !document.getElementById('tab-live').classList.contains('active') && getToken()!=='' ) loadAll();
   },180000);
-});
+}
 </script>
 
 </body>
